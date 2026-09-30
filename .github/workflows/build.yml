@@ -148,7 +148,7 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
-          shopt -s nullglob globstar
+          shopt -s nullglob
           files=(
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
