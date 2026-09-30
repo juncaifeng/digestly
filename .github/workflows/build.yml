@@ -1,0 +1,220 @@
+name: Build
+
+# 与 mihoyo-sub 同一套 release 管理:
+#   任何分支 push  → 构建并更新滚动 Pre-release "<分支名>-latest"(随时能取到最新包)
+#   v* tag push    → 构建并发布正式 Release "<分支名>-<tag>"(Latest)
+# 一个文件管所有平台,Release 直接在 Releases 页可见,不依赖 Actions Artifacts。
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+# 创建/更新 Release 需要写权限
+permissions:
+  contents: write
+
+# 同一 ref 连续推送时取消未跑完的旧构建,避免多个 job 同时删改同一个 Release。
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: 12
+
+jobs:
+  # 先算好 Release 的 tag/标题并建好空 Release,后面的构建 job 只往里面传文件,
+  # 避免多平台并行时互相 delete/create 打架。
+  prepare:
+    name: 准备 Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      name: ${{ steps.meta.outputs.name }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tag 构建时要靠完整历史反查它落在哪个分支上,浅克隆查不到。
+          fetch-depth: 0
+
+      - name: 计算 Release 名称
+        id: meta
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            branch=$(git branch -r --contains "${GITHUB_SHA}" \
+                     | grep -v '\->' | head -1 | sed 's|.*origin/||' | tr -d ' ')
+            branch=${branch:-${DEFAULT_BRANCH}}
+            echo "tag=${GITHUB_REF_NAME}"            >> "$GITHUB_OUTPUT"
+            echo "name=${branch}-${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"                  >> "$GITHUB_OUTPUT"
+          else
+            # 滚动 dev 版。后缀 -latest 避免滚动 tag 与分支同名造成 ref 歧义。
+            echo "tag=${GITHUB_REF_NAME}-latest"     >> "$GITHUB_OUTPUT"
+            echo "name=${GITHUB_REF_NAME}-latest"    >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"                   >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 重建空 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          NAME: ${{ steps.meta.outputs.name }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          # 滚动版的 tag 是我们自己造的,可以连 tag 一起清掉重建;
+          # 正式 tag 是用户打的,只覆盖 Release,绝不删 tag。
+          if [[ "$PRERELEASE" == "true" ]]; then
+            gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          else
+            gh release delete "$TAG" --yes 2>/dev/null || true
+          fi
+          args=(--title "$NAME" --target "$GITHUB_SHA" --generate-notes)
+          [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
+          gh release create "$TAG" "${args[@]}"
+
+  desktop:
+    name: 桌面端 (${{ matrix.os }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: msi
+            assets: apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+          - os: macos-latest
+            bundles: dmg
+            assets: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          - os: ubuntu-latest
+            bundles: appimage,deb
+            assets: |
+              apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+              apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: "**/go.sum"
+
+      - name: 安装 Linux webview 依赖
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: 安装前端依赖并构建
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -C apps/web build
+
+      - name: 编译 Go sidecar
+        working-directory: apps/server
+        run: |
+          TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
+          mkdir -p ../desktop/src-tauri/binaries
+          EXT=""; [ "${{ matrix.os }}" = "windows-latest" ] && EXT=".exe"
+          go build -ldflags "-s -w" -o "../desktop/src-tauri/binaries/digestly-server-${TRIPLE}${EXT}" .
+        shell: bash
+
+      - name: 打包 Tauri
+        working-directory: apps/desktop
+        run: pnpm tauri build --bundles ${{ matrix.bundles }}
+
+      - name: 上传产物到 Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          files=(
+            apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+          )
+          [[ ${#files[@]} -eq 0 ]] && { echo "没有匹配到安装包"; exit 1; }
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  android:
+    name: Android APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: "**/go.sum"
+
+      - name: 安装 Android NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" "ndk;27.0.12077973" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: 安装前端依赖并构建
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -C apps/web build
+
+      # TODO(移动端方案 A): 接入 gomobile 把 core 编为 .aar,让 APK 自带后端。
+      # 当前 APK 是纯壳,仅验证 Tauri 移动端打包链路。
+      - name: 初始化 Android 工程
+        working-directory: apps/desktop
+        run: pnpm tauri android init
+
+      - name: 打包 debug APK
+        working-directory: apps/desktop
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          pnpm tauri android build --apk --debug
+
+      - name: 上传 APK 到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          files=(apps/desktop/src-tauri/gen/android/app/build/outputs/apk/**/*.apk)
+          [[ ${#files[@]} -eq 0 ]] && { echo "没有匹配到 APK"; exit 1; }
+          gh release upload "$TAG" "${files[@]}" --clobber

@@ -50,20 +50,17 @@ just dev-desktop       # tauri dev(会同时拉起前端 dev server)
 
 ## 分支 / CI
 
-| 分支 | 用途 | CI |
-|---|---|---|
-| `*-dev` | 日常开发(默认分支 `main-dev`) | push 即构建桌面三平台快照包(artifact) |
-| `*-tags` | 发行(合并自对应 dev) | push 构建 + `v*` tag 发布 GitHub Release(含 Android debug APK) |
+与 mihoyo-sub 同一套 release 管理(单个 .github/workflows/build.yml):
 
-发版流程: `just release v0.1.0`(自动合并 main-dev → main-tags、打 tag、推送),GitHub Release 会附上三平台安装包 + Android APK。
-
-## 制品下载
-
-| 场景 | 位置 |
+| 触发 | 产出(Releases 页直接可见) |
 |---|---|
-| dev 快照包 | Actions → 对应 run → Artifacts(90 天有效),或 `gh run download <run-id>` |
-| release 分支构建(未打 tag) | Actions → Artifacts(安装包,非完整 bundle) |
-| 正式发行 | Releases 页面(v* tag 触发): msi / dmg / AppImage / deb / apk |
+| 任意分支 push | 滚动 Pre-release `<分支名>-latest`,覆盖更新,随时取最新包 |
+| `v*` tag push | 正式 Release `<分支名>-<tag>`(Latest) |
+
+每次 Release 附带: Windows msi / macOS dmg / Linux AppImage+deb / Android debug APK。
+滚动 tag 带 `-latest` 后缀是为了避免与同名分支产生 git ref 歧义。
+
+发版流程: `just release v0.1.0`(自动合并 main-dev → main-tags、打 tag、推送)。
 
 ## 环境要求
 
