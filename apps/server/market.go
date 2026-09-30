@@ -26,13 +26,20 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, st *store.Store, scri
 				installed[n[3:]] = true
 			}
 		}
+		versions, _ := st.MarketVersions()
 		type entryWithState struct {
 			market.Entry
-			Installed bool `json:"installed"`
+			Installed        bool `json:"installed"`
+			InstalledVersion int  `json:"installed_version"`
+			UpdateAvailable  bool `json:"update_available"`
 		}
 		out := make([]entryWithState, 0, len(m.Collectors))
 		for _, e := range m.Collectors {
-			out = append(out, entryWithState{e, installed[e.Name]})
+			iv := versions[e.Name]
+			out = append(out, entryWithState{
+				e, installed[e.Name], iv,
+				installed[e.Name] && e.ScriptVersion > iv,
+			})
 		}
 		writeJSON(w, 200, map[string]any{"collectors": out})
 	})
@@ -55,6 +62,7 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, st *store.Store, scri
 			writeErr(w, 500, err)
 			return
 		}
+		_ = st.SetMarketVersion(entry.Name, entry.ScriptVersion)
 		resp := map[string]any{"installed": entry.Name, "feed_created": false}
 		feed := model.Feed{
 			Title:       entry.Title,

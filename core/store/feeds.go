@@ -36,3 +36,30 @@ func (s *Store) ListFeeds() ([]model.Feed, error) {
 	}
 	return out, rows.Err()
 }
+
+// SetMarketVersion 记录市场脚本安装版本。
+func (s *Store) SetMarketVersion(name string, version int) error {
+	_, err := s.db.Exec(`INSERT INTO market_state(name,script_version) VALUES(?,?)
+		ON CONFLICT(name) DO UPDATE SET script_version=excluded.script_version,
+		installed_at=CURRENT_TIMESTAMP`, name, version)
+	return err
+}
+
+// MarketVersions 取所有已安装脚本版本。
+func (s *Store) MarketVersions() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT name,script_version FROM market_state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var n string
+		var v int
+		if err := rows.Scan(&n, &v); err != nil {
+			return nil, err
+		}
+		out[n] = v
+	}
+	return out, rows.Err()
+}

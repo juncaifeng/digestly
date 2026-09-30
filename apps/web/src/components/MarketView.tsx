@@ -87,10 +87,13 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between gap-2">
                 <span className="truncate">{e.title}</span>
-                {e.installed && (
+                {e.installed && !e.update_available && (
                   <Badge variant="secondary" className="shrink-0">
                     <Check className="size-3" /> 已安装
                   </Badge>
+                )}
+                {e.update_available && (
+                  <Badge className="shrink-0 bg-amber-500 text-white">可更新 v{e.script_version}</Badge>
                 )}
               </CardTitle>
               <CardDescription>{e.description}</CardDescription>
@@ -108,7 +111,7 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
                 onClick={() => install(e.name)}
               >
                 <Download className="size-3.5" />
-                {installing === e.name ? "安装中…" : e.installed ? "重装/更新" : "安装"}
+                {installing === e.name ? "安装中…" : e.update_available ? "更新" : e.installed ? "重装" : "安装"}
               </Button>
             </CardContent>
           </Card>

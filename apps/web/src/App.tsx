@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { LayoutList, RefreshCw, Rss, Search, Store, Trash2 } from "lucide-react"
 
 import { api, type Feed, type Item, type ItemStatus } from "@/api/client"
+import { ItemDetail } from "@/components/ItemDetail"
 import { MarketView } from "@/components/MarketView"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,7 @@ export default function App() {
   const [query, setQuery] = useState("")
   const [newFeed, setNewFeed] = useState({ title: "", url: "" })
   const [view, setView] = useState<"articles" | "market">("articles")
+  const [selected, setSelected] = useState<Item | null>(null)
 
   const loadFeeds = useCallback(() => api.listFeeds().then(setFeeds).catch(console.error), [])
   const loadItems = useCallback(() => {
@@ -32,6 +34,12 @@ export default function App() {
 
   useEffect(() => { void loadFeeds() }, [loadFeeds])
   useEffect(() => { void loadItems() }, [loadItems])
+  useEffect(() => {
+    if (selected) {
+      const fresh = items.find((i) => i.id === selected.id)
+      if (fresh && fresh !== selected) setSelected(fresh)
+    }
+  }, [items])
 
   const addFeed = async () => {
     if (!newFeed.title || !newFeed.url) return
@@ -85,7 +93,7 @@ export default function App() {
             variant={activeFeed === undefined ? "secondary" : "ghost"}
             size="sm"
             className="justify-start"
-            onClick={() => setActiveFeed(undefined)}
+            onClick={() => { setActiveFeed(undefined); setSelected(null) }}
           >
             全部文章
           </Button>
@@ -95,7 +103,7 @@ export default function App() {
                 variant={activeFeed === f.id ? "secondary" : "ghost"}
                 size="sm"
                 className="flex-1 justify-start truncate"
-                onClick={() => setActiveFeed(f.id)}
+                onClick={() => { setActiveFeed(f.id); setSelected(null) }}
               >
                 {f.title}
               </Button>
@@ -124,7 +132,8 @@ export default function App() {
       {view === "market" ? (
         <MarketView onInstalled={loadFeeds} />
       ) : (
-      <main className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
+      <main className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
@@ -134,12 +143,16 @@ export default function App() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-1">
+        <div className={"flex-1 overflow-y-auto flex flex-col gap-3 pr-1 " +
+          (selected ? "max-w-md" : "")}>
           {items.map((it) => (
             <Card
               key={it.id}
-              className={it.read ? "opacity-60" : ""}
+              className={(it.read ? "opacity-60 " : "") +
+                (selected?.id === it.id ? "ring-2 ring-ring " : "") +
+                "cursor-pointer"}
               onClick={() => {
+                setSelected(it)
                 if (!it.read) api.markRead(it.id, true).then(loadItems)
               }}
             >
@@ -182,6 +195,14 @@ export default function App() {
             </p>
           )}
         </div>
+      </div>
+      {selected && (
+        <ItemDetail
+          item={selected}
+          onClose={() => setSelected(null)}
+          onTagged={loadItems}
+        />
+      )}
       </main>
       )}
     </div>

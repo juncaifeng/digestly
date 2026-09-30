@@ -27,6 +27,7 @@ export interface Item {
   published_at: string | null
   status: ItemStatus
   read: boolean
+  tags?: string[]
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -69,6 +70,8 @@ export interface MarketEntry {
   script_version: number
   config_schema: Record<string, { type: string; default: unknown }>
   installed: boolean
+  installed_version: number
+  update_available: boolean
 }
 
 export interface InstallResult {

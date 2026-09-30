@@ -84,7 +84,19 @@ func (s *Store) ListItems(f ItemFilter) ([]model.Item, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanItems(rows)
+	items, err := scanItems(rows)
+	if err != nil {
+		return nil, err
+	}
+	// 附带标签(列表页 badge 与详情页展示用)
+	for i := range items {
+		tags, err := s.ItemTags(items[i].ID)
+		if err != nil {
+			return items, nil // 标签查询失败不阻塞主列表
+		}
+		items[i].Tags = tags
+	}
+	return items, nil
 }
 
 func scanItems(rows *sql.Rows) ([]model.Item, error) {
