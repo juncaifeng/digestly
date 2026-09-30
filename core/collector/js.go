@@ -66,32 +66,32 @@ func (c *jsCollector) Collect(ctx context.Context, src Source) ([]model.Item, er
 	if err != nil {
 		return nil, fmt.Errorf("script %s collect(): %w", c.name, err)
 	}
-	var rows []struct {
-		GUID      string `json:"guid"`
-		Title     string `json:"title"`
-		Link      string `json:"link"`
-		Author    string `json:"author"`
-		Content   string `json:"content"`
-		Published string `json:"published"`
-	}
+	// goja 的 ExportTo 对结构体字段名映射不识别 json tag,直接导出为 map 最稳
+	var rows []map[string]any
 	if err := vm.ExportTo(v, &rows); err != nil {
 		return nil, fmt.Errorf("script %s bad result: %w", c.name, err)
 	}
 	items := make([]model.Item, 0, len(rows))
+	get := func(m map[string]any, k string) string {
+		if s, ok := m[k].(string); ok {
+			return s
+		}
+		return ""
+	}
 	for _, r := range rows {
 		it := model.Item{
 			FeedID:  src.FeedID,
-			GUID:    r.GUID,
-			Title:   r.Title,
-			Link:    r.Link,
-			Author:  r.Author,
-			Content: r.Content,
+			GUID:    get(r, "guid"),
+			Title:   get(r, "title"),
+			Link:    get(r, "link"),
+			Author:  get(r, "author"),
+			Content: get(r, "content"),
 			Status:  model.StatusPending,
 		}
 		if it.GUID == "" {
-			it.GUID = r.Link
+			it.GUID = it.Link
 		}
-		if t, err := time.Parse(time.RFC3339, r.Published); err == nil {
+		if t, err := time.Parse(time.RFC3339, get(r, "published")); err == nil {
 			it.PublishedAt = &t
 		}
 		items = append(items, it)

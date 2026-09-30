@@ -44,8 +44,9 @@ just dev-desktop       # tauri dev(会同时拉起前端 dev server)
 ## 采集器扩展
 
 - 内置: `rss` / `atom` / `jsonfeed`
-- JS 脚本: 放入 `data/collectors/*.js`,feed 的 collector 填 `js:<脚本名>`,
-  约定见 [packages/collectors/README.md](packages/collectors/README.md)
+- **订阅源市场**: [digestly-collectors](https://github.com/juncaifeng/digestly-collectors),
+  `GET /api/market` 浏览、`POST /api/market/install` 一键安装(下载脚本→热重载→自动建 feed)
+- JS 脚本: 手动放入 `data/collectors/*.js` 亦可,约定见市场仓库 README
 - Go 插件(go-plugin 子进程): roadmap
 
 ## 分支 / CI

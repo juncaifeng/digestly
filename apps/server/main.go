@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/juncaifeng/digestly/core/collector"
+	"github.com/juncaifeng/digestly/core/market"
 	"github.com/juncaifeng/digestly/core/pipeline"
 	"github.com/juncaifeng/digestly/core/scheduler"
 	"github.com/juncaifeng/digestly/core/store"
@@ -59,6 +60,7 @@ func main() {
 		registerItemRoutes(r, st)
 		registerCollectorRoutes(r)
 		registerPipelineRoutes(r, chain)
+		registerMarketRoutes(r, market.NewClient(filepath.Join(*dataDir, "market")), st, collector.JSDir)
 	})
 
 	log.Printf("digestly server listening on %s (data: %s)", *addr, *dataDir)
