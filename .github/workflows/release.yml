@@ -89,10 +89,9 @@ jobs:
         with:
           go-version: "1.26"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Setup Android SDK & NDK
+      - name: Setup Android NDK
         run: |
+          yes | sdkmanager --licenses > /dev/null
           sdkmanager "ndk;27.0.12077973" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build frontend
