@@ -25,7 +25,7 @@ func (s *Store) ListFeeds() ([]model.Feed, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []model.Feed
+	out := []model.Feed{}
 	for rows.Next() {
 		var f model.Feed
 		if err := rows.Scan(&f.ID, &f.Title, &f.URL, &f.Collector, &f.Config,

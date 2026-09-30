@@ -100,7 +100,7 @@ func (s *Store) ListItems(f ItemFilter) ([]model.Item, error) {
 }
 
 func scanItems(rows *sql.Rows) ([]model.Item, error) {
-	var out []model.Item
+	out := []model.Item{}
 	for rows.Next() {
 		var it model.Item
 		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link,
@@ -148,7 +148,7 @@ func (s *Store) ItemTags(itemID int64) ([]string, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	out := []string{}
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err != nil {
