@@ -107,10 +107,10 @@ jobs:
         run: pnpm tauri android init || echo "android project already exists"
 
       - name: Build debug APK
+        run: |
         working-directory: apps/desktop
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: pnpm tauri android build --apk --debug || echo "android build needs follow-up config"
+          export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          pnpm tauri android build --apk --debug
 
       - uses: actions/upload-artifact@v4
         with:
