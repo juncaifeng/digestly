@@ -107,8 +107,8 @@ jobs:
         run: pnpm tauri android init || echo "android project already exists"
 
       - name: Build debug APK
-        run: |
         working-directory: apps/desktop
+        run: |
           export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
           pnpm tauri android build --apk --debug
 
