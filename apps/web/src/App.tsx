@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
-import { RefreshCw, Rss, Search, Trash2 } from "lucide-react"
+import { LayoutList, RefreshCw, Rss, Search, Store, Trash2 } from "lucide-react"
 
 import { api, type Feed, type Item, type ItemStatus } from "@/api/client"
+import { MarketView } from "@/components/MarketView"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,6 +20,7 @@ export default function App() {
   const [activeFeed, setActiveFeed] = useState<number | undefined>()
   const [query, setQuery] = useState("")
   const [newFeed, setNewFeed] = useState({ title: "", url: "" })
+  const [view, setView] = useState<"articles" | "market">("articles")
 
   const loadFeeds = useCallback(() => api.listFeeds().then(setFeeds).catch(console.error), [])
   const loadItems = useCallback(() => {
@@ -46,6 +48,25 @@ export default function App() {
         <h1 className="text-lg font-bold flex items-center gap-2">
           <Rss className="size-5" /> digestly
         </h1>
+        <div className="flex gap-1">
+          <Button
+            variant={view === "articles" ? "secondary" : "ghost"}
+            size="sm"
+            className="flex-1"
+            onClick={() => setView("articles")}
+          >
+            <LayoutList className="size-4" /> 文章
+          </Button>
+          <Button
+            variant={view === "market" ? "secondary" : "ghost"}
+            size="sm"
+            className="flex-1"
+            onClick={() => setView("market")}
+          >
+            <Store className="size-4" /> 市场
+          </Button>
+        </div>
+        {view === "articles" && (<>
         <div className="flex flex-col gap-2">
           <Input
             placeholder="订阅源名称"
@@ -97,8 +118,12 @@ export default function App() {
             </div>
           ))}
         </nav>
+        </>)}
       </aside>
 
+      {view === "market" ? (
+        <MarketView onInstalled={loadFeeds} />
+      ) : (
       <main className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
@@ -158,6 +183,7 @@ export default function App() {
           )}
         </div>
       </main>
+      )}
     </div>
   )
 }

@@ -58,3 +58,27 @@ export const api = {
   listCollectors: () => req<string[]>("/collectors"),
   runPipeline: () => req<{ processed: number }>("/pipeline/run", { method: "POST" }),
 }
+
+export interface MarketEntry {
+  name: string
+  title: string
+  description: string
+  url: string
+  source_url: string
+  tags: string[]
+  script_version: number
+  config_schema: Record<string, { type: string; default: unknown }>
+  installed: boolean
+}
+
+export interface InstallResult {
+  installed: string
+  feed_created: boolean
+  feed_id?: number
+}
+
+export const marketApi = {
+  list: () => req<{ collectors: MarketEntry[] }>("/market"),
+  install: (name: string) =>
+    req<InstallResult>("/market/install", { method: "POST", body: JSON.stringify({ name }) }),
+}
