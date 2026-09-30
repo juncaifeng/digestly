@@ -21,3 +21,15 @@ build-desktop:
 check:
     cd core && go build ./...
     cd apps/server && go build ./...
+
+# 发版: 把 main-dev 合入 main-tags 并打 tag(如 just release v0.1.0)
+release tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git checkout main-tags
+    git merge main-dev --no-edit
+    git push
+    git tag -a {{tag}} -m "{{tag}}"
+    git push origin {{tag}}
+    git checkout main-dev
+    @echo "release {{tag}} triggered, see GitHub Actions"

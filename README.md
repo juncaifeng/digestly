@@ -55,7 +55,15 @@ just dev-desktop       # tauri dev(会同时拉起前端 dev server)
 | `*-dev` | 日常开发(默认分支 `main-dev`) | push 即构建桌面三平台快照包(artifact) |
 | `*-tags` | 发行(合并自对应 dev) | push 构建 + `v*` tag 发布 GitHub Release(含 Android debug APK) |
 
-发版流程: `main-dev` 合入 `main-tags` → 在 `main-tags` 上 `git tag v0.1.0 && git push --tags`。
+发版流程: `just release v0.1.0`(自动合并 main-dev → main-tags、打 tag、推送),GitHub Release 会附上三平台安装包 + Android APK。
+
+## 制品下载
+
+| 场景 | 位置 |
+|---|---|
+| dev 快照包 | Actions → 对应 run → Artifacts(90 天有效),或 `gh run download <run-id>` |
+| release 分支构建(未打 tag) | Actions → Artifacts(安装包,非完整 bundle) |
+| 正式发行 | Releases 页面(v* tag 触发): msi / dmg / AppImage / deb / apk |
 
 ## 环境要求
 
