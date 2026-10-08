@@ -93,6 +93,15 @@ func registerItemRoutes(r chi.Router, st *store.Store) {
 		}
 		writeJSON(w, 200, items)
 	})
+	r.Get("/items/{id}", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+		item, err := st.GetItem(id)
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		writeJSON(w, 200, item)
+	})
 	r.Post("/items/{id}/read", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {
@@ -125,6 +134,18 @@ func registerItemRoutes(r chi.Router, st *store.Store) {
 func registerCollectorRoutes(r chi.Router) {
 	r.Get("/collectors", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, collector.Names())
+	})
+}
+
+func registerStatsRoutes(r chi.Router, st *store.Store) {
+	r.Get("/stats", func(w http.ResponseWriter, _ *http.Request) {
+		items, entries, bytes := st.CacheStats()
+		writeJSON(w, 200, map[string]any{
+			"index_items":      items,
+			"content_cached":   entries,
+			"content_bytes":    bytes,
+			"content_cap_bytes": store.DefaultContentCacheBytes,
+		})
 	})
 }
 

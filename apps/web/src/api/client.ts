@@ -52,6 +52,7 @@ export const api = {
       if (v !== undefined && v !== "") qs.set(k, String(v))
     return req<Item[]>(`/items?${qs}`)
   },
+  getItem: (id: number) => req<Item>(`/items/${id}`),
   markRead: (id: number, read: boolean) =>
     req<void>(`/items/${id}/read`, { method: "POST", body: JSON.stringify({ read }) }),
   addTag: (id: number, tag: string) =>

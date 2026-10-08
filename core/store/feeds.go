@@ -14,8 +14,23 @@ func (s *Store) AddFeed(f *model.Feed) error {
 }
 
 func (s *Store) DeleteFeed(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM feeds WHERE id=?`, id)
-	return err
+	// 先收集该源的条目 id,用于清理 L1/L2(表上有 ON DELETE CASCADE)
+	s.index.mu.RLock()
+	var ids []int64
+	for _, m := range s.index.items {
+		if m.item.FeedID == id {
+			ids = append(ids, m.item.ID)
+		}
+	}
+	s.index.mu.RUnlock()
+	if _, err := s.db.Exec(`DELETE FROM feeds WHERE id=?`, id); err != nil {
+		return err
+	}
+	for _, iid := range ids {
+		s.index.remove(iid)
+		s.content.Remove(iid)
+	}
+	return nil
 }
 
 func (s *Store) ListFeeds() ([]model.Feed, error) {

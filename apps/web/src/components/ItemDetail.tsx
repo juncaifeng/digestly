@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import DOMPurify from "dompurify"
 import { ExternalLink, X } from "lucide-react"
 
@@ -23,6 +23,19 @@ export function ItemDetail({
   onTagged: () => void
 }) {
   const [tag, setTag] = useState("")
+  const [content, setContent] = useState("")
+  const articleRef = useRef<HTMLElement>(null)
+
+  // 切换文章: 回到顶部 + 单独拉取正文(列表接口不再携带 content,详情走 L2 LRU)
+  useEffect(() => {
+    articleRef.current?.scrollTo({ top: 0 })
+    setContent("")
+    let cancelled = false
+    api.getItem(item.id)
+      .then((full) => { if (!cancelled) setContent(full.content) })
+      .catch(console.error)
+    return () => { cancelled = true }
+  }, [item.id])
 
   const addTag = async () => {
     if (!tag.trim()) return
@@ -77,10 +90,11 @@ export function ItemDetail({
       </div>
 
       <article
+        ref={articleRef}
         className="flex-1 overflow-y-auto p-4 prose prose-sm dark:prose-invert max-w-none
           [&_img]:max-w-full [&_a]:text-blue-500 [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:rounded"
         dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(item.content || item.summary || "(无正文)"),
+          __html: DOMPurify.sanitize(content || item.summary || "(无正文)"),
         }}
       />
     </div>

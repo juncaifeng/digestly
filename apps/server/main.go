@@ -59,6 +59,7 @@ func main() {
 		registerFeedRoutes(r, st, sched)
 		registerItemRoutes(r, st)
 		registerCollectorRoutes(r)
+		registerStatsRoutes(r, st)
 		registerPipelineRoutes(r, chain)
 		registerMarketRoutes(r, market.NewClient(filepath.Join(*dataDir, "market")), st, collector.JSDir)
 	})

@@ -2,12 +2,14 @@ package store
 
 import (
 	"database/sql"
+	"sort"
 	"strings"
 
 	"github.com/juncaifeng/digestly/core/model"
 )
 
 // InsertItems 批量写入，按 (feed_id,guid) 去重，返回新插入条数。
+// write-through: 落库成功后同步 L1 索引。
 func (s *Store) InsertItems(items []model.Item) (int, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -20,18 +22,27 @@ func (s *Store) InsertItems(items []model.Item) (int, error) {
 		return 0, err
 	}
 	defer stmt.Close()
-	n := 0
+	var inserted []model.Item
 	for _, it := range items {
 		res, err := stmt.Exec(it.FeedID, it.GUID, it.Title, it.Link, it.Author,
 			it.Content, it.PublishedAt, model.StatusPending)
 		if err != nil {
-			return n, err
+			return len(inserted), err
 		}
 		if aff, _ := res.RowsAffected(); aff > 0 {
-			n++
+			it.ID, _ = res.LastInsertId()
+			it.Status = model.StatusPending
+			it.Content = "" // L1 不持有正文
+			inserted = append(inserted, it)
 		}
 	}
-	return n, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	for _, it := range inserted {
+		s.index.add(&itemMeta{item: it})
+	}
+	return len(inserted), nil
 }
 
 // ItemFilter 列表查询条件。
@@ -39,22 +50,29 @@ type ItemFilter struct {
 	FeedID int64
 	Status model.ItemStatus
 	Tag    string
-	Query  string // FTS5 全文搜索
+	Query  string // FTS5 全文搜索(走 SQL;其余条件走 L1 内存索引)
 	Unread bool
 	Limit  int
 	Offset int
 }
 
+// ListItems 列表查询。不返回正文(详情走 GetItem / L2 LRU)。
+// 无 Query 时纯内存完成;有 Query 时走 FTS5,但同样不取正文。
 func (s *Store) ListItems(f ItemFilter) ([]model.Item, error) {
+	if f.Query == "" {
+		return s.index.filter(f), nil
+	}
+	return s.searchItems(f)
+}
+
+// searchItems FTS5 搜索路径(无法走内存索引的唯一场景)。
+func (s *Store) searchItems(f ItemFilter) ([]model.Item, error) {
 	var sb strings.Builder
 	var args []any
-	sb.WriteString(`SELECT i.id,i.feed_id,i.guid,i.title,i.link,i.author,i.content,
+	sb.WriteString(`SELECT i.id,i.feed_id,i.guid,i.title,i.link,i.author,
 		i.summary,i.keywords,i.source,i.published_at,i.status,i.read,i.created_at
-		FROM items i`)
-	if f.Query != "" {
-		sb.WriteString(` JOIN items_fts ft ON ft.rowid = i.id AND items_fts MATCH ?`)
-		args = append(args, quoteFTS(f.Query))
-	}
+		FROM items i JOIN items_fts ft ON ft.rowid = i.id AND items_fts MATCH ?`)
+	args = append(args, quoteFTS(f.Query))
 	if f.Tag != "" {
 		sb.WriteString(` JOIN item_tags it ON it.item_id=i.id
 			JOIN tags t ON t.id=it.tag_id AND t.name=?`)
@@ -84,22 +102,83 @@ func (s *Store) ListItems(f ItemFilter) ([]model.Item, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	items, err := scanItems(rows)
+	out := []model.Item{}
+	for rows.Next() {
+		var it model.Item
+		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link,
+			&it.Author, &it.Summary, &it.Keywords, &it.Source,
+			&it.PublishedAt, &it.Status, &it.Read, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 标签从 L1 索引取,避免 N+1
+	s.index.mu.RLock()
+	for i := range out {
+		if m, ok := s.index.items[out[i].ID]; ok {
+			out[i].Tags = append([]string{}, m.tags...)
+		}
+	}
+	s.index.mu.RUnlock()
+	return out, nil
+}
+
+// GetItem 取单篇完整条目(含正文)。正文走 L2 LRU,miss 时回源 SQLite 并回填。
+func (s *Store) GetItem(id int64) (*model.Item, error) {
+	s.index.mu.RLock()
+	m, ok := s.index.items[id]
+	if !ok {
+		s.index.mu.RUnlock()
+		return nil, sql.ErrNoRows
+	}
+	it := m.item
+	it.Tags = append([]string{}, m.tags...)
+	s.index.mu.RUnlock()
+
+	if content, hit := s.content.Get(id); hit {
+		it.Content = content
+		return &it, nil
+	}
+	var content string
+	if err := s.db.QueryRow(`SELECT content FROM items WHERE id=?`, id).Scan(&content); err != nil {
+		return nil, err
+	}
+	s.content.Add(id, content)
+	it.Content = content
+	return &it, nil
+}
+
+// SetEnrichment 标注管线回写：摘要/关键词/来源 + 状态推进。
+func (s *Store) SetEnrichment(id int64, summary, keywords, source string, status model.ItemStatus) error {
+	if _, err := s.db.Exec(
+		`UPDATE items SET summary=?,keywords=?,source=?,status=? WHERE id=?`,
+		summary, keywords, source, status, id); err != nil {
+		return err
+	}
+	s.index.update(id, func(m *itemMeta) {
+		m.item.Summary = summary
+		m.item.Keywords = keywords
+		m.item.Source = source
+		m.item.Status = status
+	})
+	return nil
+}
+
+// PendingItems 取待标注文章(含正文,管线需要;批量作业不走缓存)。
+func (s *Store) PendingItems(limit int) ([]model.Item, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT id,feed_id,guid,title,link,author,content,
+		summary,keywords,source,published_at,status,read,created_at
+		FROM items WHERE status=? ORDER BY id LIMIT ?`, model.StatusPending, limit)
 	if err != nil {
 		return nil, err
 	}
-	// 附带标签(列表页 badge 与详情页展示用)
-	for i := range items {
-		tags, err := s.ItemTags(items[i].ID)
-		if err != nil {
-			return items, nil // 标签查询失败不阻塞主列表
-		}
-		items[i].Tags = tags
-	}
-	return items, nil
-}
-
-func scanItems(rows *sql.Rows) ([]model.Item, error) {
+	defer rows.Close()
 	out := []model.Item{}
 	for rows.Next() {
 		var it model.Item
@@ -113,22 +192,12 @@ func scanItems(rows *sql.Rows) ([]model.Item, error) {
 	return out, rows.Err()
 }
 
-// SetEnrichment 标注管线回写：摘要/关键词/来源 + 状态推进。
-func (s *Store) SetEnrichment(id int64, summary, keywords, source string, status model.ItemStatus) error {
-	_, err := s.db.Exec(
-		`UPDATE items SET summary=?,keywords=?,source=?,status=? WHERE id=?`,
-		summary, keywords, source, status, id)
-	return err
-}
-
-// PendingItems 取待标注文章。
-func (s *Store) PendingItems(limit int) ([]model.Item, error) {
-	return s.ListItems(ItemFilter{Status: model.StatusPending, Limit: limit})
-}
-
 func (s *Store) MarkRead(id int64, read bool) error {
-	_, err := s.db.Exec(`UPDATE items SET read=? WHERE id=?`, read, id)
-	return err
+	if _, err := s.db.Exec(`UPDATE items SET read=? WHERE id=?`, read, id); err != nil {
+		return err
+	}
+	s.index.update(id, func(m *itemMeta) { m.item.Read = read })
+	return nil
 }
 
 // AddTag 给文章打标签(用户手工或管线规则)。
@@ -136,12 +205,28 @@ func (s *Store) AddTag(itemID int64, name string) error {
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO tags(name) VALUES(?)`, name); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO item_tags(item_id,tag_id)
-		SELECT ?, id FROM tags WHERE name=?`, itemID, name)
-	return err
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO item_tags(item_id,tag_id)
+		SELECT ?, id FROM tags WHERE name=?`, itemID, name); err != nil {
+		return err
+	}
+	s.index.update(itemID, func(m *itemMeta) {
+		if !hasTag(m.tags, name) {
+			m.tags = append(m.tags, name)
+			sort.Strings(m.tags) // 与 SQL ORDER BY name 一致
+		}
+	})
+	return nil
 }
 
+// ItemTags 取文章标签(优先 L1;索引未命中时回源 SQL)。
 func (s *Store) ItemTags(itemID int64) ([]string, error) {
+	s.index.mu.RLock()
+	if m, ok := s.index.items[itemID]; ok {
+		out := append([]string{}, m.tags...)
+		s.index.mu.RUnlock()
+		return out, nil
+	}
+	s.index.mu.RUnlock()
 	rows, err := s.db.Query(`SELECT t.name FROM tags t
 		JOIN item_tags it ON it.tag_id=t.id WHERE it.item_id=? ORDER BY t.name`, itemID)
 	if err != nil {
