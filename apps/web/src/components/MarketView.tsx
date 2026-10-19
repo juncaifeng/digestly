@@ -17,11 +17,11 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
   const [lastFetch, setLastFetch] = useState("")
   const [refreshing, setRefreshing] = useState(false)
 
-  // 走本地缓存,瞬时返回
-  const load = () => {
+  // 走本地缓存,瞬时返回。首次(本地无清单)带 wait_ready 等后台预热,之后纯缓存。
+  const load = (waitReady = false) => {
     setError("")
     marketApi
-      .list()
+      .list(waitReady)
       .then((r) => {
         setEntries(r.collectors)
         setStale(r.stale)
@@ -29,7 +29,7 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
       })
       .catch((e) => setError(`市场清单加载失败: ${e.message}`))
   }
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load(true) }, [])
 
   // 显式回源远端拉取最新清单
   const refresh = async () => {
@@ -153,7 +153,12 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
             </CardContent>
           </Card>
         ))}
-        {filtered.length === 0 && !error && (
+        {filtered.length === 0 && !error && entries.length === 0 && (
+          <p className="text-muted-foreground text-sm col-span-full text-center mt-10">
+            正在获取市场清单…
+          </p>
+        )}
+        {filtered.length === 0 && !error && entries.length > 0 && (
           <p className="text-muted-foreground text-sm col-span-full text-center mt-10">
             没有匹配的订阅源
           </p>

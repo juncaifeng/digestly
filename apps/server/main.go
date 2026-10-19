@@ -44,6 +44,9 @@ func main() {
 		pipeline.Summary{MaxRunes: 200},
 		pipeline.Keywords{TopN: 5},
 	)
+	mc := market.NewClient(filepath.Join(*dataDir, "market"))
+	mc.StartWarmup() // 市场清单后台预热,首次打开市场页零等待
+
 	sched := scheduler.New(st, chain)
 	sched.Start()
 	defer sched.Stop()
@@ -61,7 +64,7 @@ func main() {
 		registerCollectorRoutes(r)
 		registerStatsRoutes(r, st)
 		registerPipelineRoutes(r, chain)
-		registerMarketRoutes(r, market.NewClient(filepath.Join(*dataDir, "market")), st, collector.JSDir)
+		registerMarketRoutes(r, mc, st, collector.JSDir)
 	})
 
 	log.Printf("digestly server listening on %s (data: %s)", *addr, *dataDir)

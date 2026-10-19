@@ -16,10 +16,11 @@ import (
 func registerMarketRoutes(r chi.Router, mc *market.Client, st *store.Store, scriptsDir string) {
 	// 市场清单 + 本地安装状态(读缓存,瞬时返回)
 	r.Get("/market", func(w http.ResponseWriter, req *http.Request) {
-		m, err := mc.List(req.Context())
-		if err != nil {
-			writeErr(w, 502, err)
-			return
+		m, canWait := mc.List(req.Context())
+		// 首轮加载(本地无清单)且前端要求等待: 挂起到后台预热完成(上限 5s),
+		// 市场页首次打开即可看到内容;平时不带参数则纯缓存瞬时返回。
+		if canWait && req.URL.Query().Get("wait_ready") == "1" {
+			m = mc.WaitReady(req.Context(), 5*time.Second)
 		}
 		installed := map[string]bool{}
 		for _, n := range collector.Names() {
