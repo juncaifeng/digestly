@@ -87,7 +87,22 @@ export interface MarketListResult {
   last_fetch: string
 }
 
+export interface SourceFeed {
+  name: string
+  title: string
+  description: string
+  feed_url: string
+  site_url: string
+  tags: string[]
+  catalog: string
+}
+
 export const marketApi = {
+  parseSource: (url: string) =>
+    req<{ source: string; feeds: SourceFeed[]; count: number }>("/market/sources", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
   list: () => req<MarketListResult>("/market"),
   refresh: () => req<{ refreshed: boolean; collectors: number }>("/market/refresh", { method: "POST" }),
   install: (name: string) =>

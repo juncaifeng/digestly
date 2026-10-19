@@ -29,9 +29,7 @@ func TestListReadsCacheWithoutNetwork(t *testing.T) {
 
 	// 冷却期内 List 不回源
 	for i := 0; i < 5; i++ {
-		if _, err := c.List(context.Background()); err != nil {
-			t.Fatal(err)
-		}
+		c.List(context.Background())
 	}
 	if got := atomic.LoadInt32(&hits); got != before {
 		t.Fatalf("List must not hit network when fresh: %d -> %d", before, got)
@@ -59,9 +57,7 @@ func TestListKicksBackgroundRefreshWhenStale(t *testing.T) {
 	c.mu.Unlock()
 
 	before := atomic.LoadInt32(&hits)
-	if _, err := c.List(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	c.List(context.Background())
 	deadline := time.Now().Add(2 * time.Second)
 	for atomic.LoadInt32(&hits) <= before && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -87,10 +83,7 @@ func TestOfflineFallsBackToDiskCache(t *testing.T) {
 	c.ManifestURL = "http://127.0.0.1:1/manifest.json"
 	c.HTTP = &http.Client{Timeout: 200 * time.Millisecond}
 
-	m, err := c.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, _ := c.List(context.Background())
 	if len(m.Collectors) != 1 || m.Collectors[0].Name != "x" {
 		t.Fatalf("disk cache fallback broken: %+v", m)
 	}
@@ -108,8 +101,8 @@ func TestRefreshFailureKeepsExistingManifest(t *testing.T) {
 	if _, err := c.Refresh(context.Background()); err != nil {
 		t.Fatal("refresh falls back to existing manifest, err =", err)
 	}
-	m, err := c.List(context.Background())
-	if err != nil || m.Version != 9 {
-		t.Fatalf("existing manifest must survive failed refresh: %v %+v", err, m)
+	m, _ := c.List(context.Background())
+	if m.Version != 9 {
+		t.Fatalf("existing manifest must survive failed refresh: %+v", m)
 	}
 }

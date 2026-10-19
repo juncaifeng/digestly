@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -49,6 +51,24 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, st *store.Store, scri
 			last = lastFetch.UTC().Format(time.RFC3339)
 		}
 		writeJSON(w, 200, map[string]any{"collectors": out, "stale": stale, "last_fetch": last})
+	})
+
+	// 解析第三方市场源: 只取地址里明确声明的订阅源清单(OPML / feeds.json),
+	// 没有清单就报"没有"——不猜测、不把仓库 commits/releases 当订阅源。
+	r.Post("/market/sources", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || strings.TrimSpace(body.URL) == "" {
+			writeErr(w, 400, fmt.Errorf("缺少 url"))
+			return
+		}
+		feeds, err := market.ParseFeeds(req.Context(), nil, strings.TrimSpace(body.URL))
+		if err != nil {
+			writeErr(w, 422, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"source": body.URL, "feeds": feeds, "count": len(feeds)})
 	})
 
 	// 显式刷新: 回源远端拉取最新清单
