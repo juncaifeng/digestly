@@ -81,8 +81,15 @@ export interface InstallResult {
   feed_id?: number
 }
 
+export interface MarketListResult {
+  collectors: MarketEntry[]
+  stale: boolean
+  last_fetch: string
+}
+
 export const marketApi = {
-  list: () => req<{ collectors: MarketEntry[] }>("/market"),
+  list: () => req<MarketListResult>("/market"),
+  refresh: () => req<{ refreshed: boolean; collectors: number }>("/market/refresh", { method: "POST" }),
   install: (name: string) =>
     req<InstallResult>("/market/install", { method: "POST", body: JSON.stringify({ name }) }),
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func registerMarketRoutes(r chi.Router, mc *market.Client, st *store.Store, scriptsDir string) {
-	// 市场清单 + 本地安装状态
+	// 市场清单 + 本地安装状态(读缓存,瞬时返回)
 	r.Get("/market", func(w http.ResponseWriter, req *http.Request) {
 		m, err := mc.List(req.Context())
 		if err != nil {
@@ -41,7 +42,22 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, st *store.Store, scri
 				installed[e.Name] && e.ScriptVersion > iv,
 			})
 		}
-		writeJSON(w, 200, map[string]any{"collectors": out})
+		stale, lastFetch := mc.Staleness()
+		last := ""
+		if !lastFetch.IsZero() {
+			last = lastFetch.UTC().Format(time.RFC3339)
+		}
+		writeJSON(w, 200, map[string]any{"collectors": out, "stale": stale, "last_fetch": last})
+	})
+
+	// 显式刷新: 回源远端拉取最新清单
+	r.Post("/market/refresh", func(w http.ResponseWriter, req *http.Request) {
+		m, err := mc.Refresh(req.Context())
+		if err != nil {
+			writeErr(w, 502, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"refreshed": true, "collectors": len(m.Collectors)})
 	})
 
 	// 安装: 下载脚本 -> 热重载 -> 自动建 feed(已存在同 URL 则跳过)

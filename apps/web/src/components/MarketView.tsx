@@ -13,15 +13,36 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
   const [activeTag, setActiveTag] = useState<string | undefined>()
   const [installing, setInstalling] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const [stale, setStale] = useState(false)
+  const [lastFetch, setLastFetch] = useState("")
+  const [refreshing, setRefreshing] = useState(false)
 
+  // 走本地缓存,瞬时返回
   const load = () => {
     setError("")
     marketApi
       .list()
-      .then((r) => setEntries(r.collectors))
-      .catch((e) => setError(`市场清单拉取失败: ${e.message}`))
+      .then((r) => {
+        setEntries(r.collectors)
+        setStale(r.stale)
+        setLastFetch(r.last_fetch)
+      })
+      .catch((e) => setError(`市场清单加载失败: ${e.message}`))
   }
   useEffect(() => { void load() }, [])
+
+  // 显式回源远端拉取最新清单
+  const refresh = async () => {
+    setRefreshing(true)
+    try {
+      await marketApi.refresh()
+      load()
+    } catch (e) {
+      setError(`刷新失败: ${(e as Error).message}`)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const install = async (name: string) => {
     setInstalling(name)
@@ -74,9 +95,25 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
             {t}
           </Button>
         ))}
-        <Button variant="ghost" size="icon" className="ml-auto" onClick={load}>
-          <RefreshCw className="size-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto"
+          disabled={refreshing}
+          title="从远端拉取最新市场清单"
+          onClick={refresh}
+        >
+          <RefreshCw className={"size-4 " + (refreshing ? "animate-spin" : "")} />
         </Button>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {lastFetch && <span>清单更新于 {new Date(lastFetch).toLocaleString()}</span>}
+        {stale && (
+          <span className="text-amber-600">
+            清单可能已过期,点右上角刷新获取最新采集器
+          </span>
+        )}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
