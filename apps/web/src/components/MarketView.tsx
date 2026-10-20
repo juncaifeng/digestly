@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react"
-import { Download, Check, Store, RefreshCw } from "lucide-react"
+import { Download, Check, Store, RefreshCw, Globe } from "lucide-react"
 
 import { api, marketApi, type MarketEntry, type SourceFeed } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SourceMarket } from "@/components/SourceMarket"
 
 export function MarketView({ onInstalled }: { onInstalled: () => void }) {
+  const [tab, setTab] = useState<"collectors" | "sources">("collectors")
   const [entries, setEntries] = useState<MarketEntry[]>([])
   const [query, setQuery] = useState("")
   const [activeTag, setActiveTag] = useState<string | undefined>()
@@ -97,10 +99,23 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
   )
 
   return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex items-center gap-1 p-4 pb-0">
+        <Button variant={tab === "collectors" ? "secondary" : "ghost"} size="sm"
+          onClick={() => setTab("collectors")}>
+          <Store className="size-4" /> 采集器市场
+        </Button>
+        <Button variant={tab === "sources" ? "secondary" : "ghost"} size="sm"
+          onClick={() => setTab("sources")}>
+          <Globe className="size-4" /> 订阅源市场
+        </Button>
+      </div>
+      {tab === "sources" && <SourceMarket onSubscribed={onInstalled} />}
+      {tab === "collectors" && (
     <div className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-base font-semibold flex items-center gap-2 mr-2">
-          <Store className="size-5" /> 订阅源市场
+          <Store className="size-5" /> 采集器市场
         </h2>
         <Input
           className="max-w-56"
@@ -235,6 +250,8 @@ export function MarketView({ onInstalled }: { onInstalled: () => void }) {
           </p>
         )}
       </div>
+    </div>
+    )}
     </div>
   )
 }

@@ -43,6 +43,17 @@ type Item struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
+// MarketSource 一个已挂载的第三方市场源(订阅源清单地址)。
+type MarketSource struct {
+	ID        int64     `json:"id"`
+	URL       string    `json:"url"`
+	Title     string    `json:"title"`
+	Enabled   bool      `json:"enabled"`
+	FeedCount int       `json:"feed_count"`
+	LastFetch time.Time `json:"last_fetch"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Tag 一个标签，可由管线或用户附加到 Item。
 type Tag struct {
 	ID   int64  `json:"id"`

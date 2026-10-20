@@ -97,12 +97,29 @@ export interface SourceFeed {
   catalog: string
 }
 
+export interface MountedSource {
+  id: number
+  url: string
+  title: string
+  enabled: boolean
+  feed_count: number
+  last_fetch: string
+  feeds: SourceFeed[]
+  parse_err?: string
+  fetched_at: string
+}
+
 export const marketApi = {
-  parseSource: (url: string) =>
-    req<{ source: string; feeds: SourceFeed[]; count: number }>("/market/sources", {
+  // 第三方市场源(订阅源清单)
+  listSources: () => req<{ sources: MountedSource[] }>("/market/sources"),
+  addSource: (url: string, title = "") =>
+    req<{ id: number; source: string; count: number; feeds: SourceFeed[] }>("/market/sources", {
       method: "POST",
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, title }),
     }),
+  removeSource: (id: number) => req<void>(`/market/sources/${id}`, { method: "DELETE" }),
+  refreshSource: (id: number) =>
+    req<{ count: number }>(`/market/sources/${id}/refresh`, { method: "POST" }),
   list: () => req<MarketListResult>("/market"),
   refresh: () => req<{ refreshed: boolean; collectors: number }>("/market/refresh", { method: "POST" }),
   install: (name: string) =>

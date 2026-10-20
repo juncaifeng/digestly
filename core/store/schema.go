@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS tags (
   id   INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE
 );
+-- 已挂载的第三方市场源(订阅源清单地址)
+CREATE TABLE IF NOT EXISTS market_sources (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  url        TEXT NOT NULL UNIQUE,
+  title      TEXT NOT NULL DEFAULT '',
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  feed_count INTEGER NOT NULL DEFAULT 0,
+  last_fetch DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 -- 市场已安装脚本的版本,用于更新检测
 CREATE TABLE IF NOT EXISTS market_state (
   name           TEXT PRIMARY KEY,
