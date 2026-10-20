@@ -33,3 +33,7 @@ release tag:
     git push origin {{tag}}
     git checkout main-dev
     @echo "release {{tag}} triggered, see GitHub Actions"
+
+# 构建 CLI(查询已采集资讯,可直接喂给 AI)
+build-cli:
+	GOTOOLCHAIN=auto go build -o dist/digestly-cli ./apps/cli

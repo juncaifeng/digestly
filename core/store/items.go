@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/juncaifeng/digestly/core/model"
 )
@@ -52,17 +54,100 @@ type ItemFilter struct {
 	Tag    string
 	Query  string // FTS5 全文搜索(走 SQL;其余条件走 L1 内存索引)
 	Unread bool
+	Since  *time.Time // 发布时间下限(含)
+	Until  *time.Time // 发布时间上限(不含);无发布时间的条目按 created_at 兜底
 	Limit  int
 	Offset int
 }
 
+// inRange 发布时间区间判断;无 published_at 的条目用 created_at 参与比较。
+func inRange(it *model.Item, since, until *time.Time) bool {
+	t := it.PublishedAt
+	if t == nil {
+		tt := it.CreatedAt
+		t = &tt
+	}
+	if since != nil && t.Before(*since) {
+		return false
+	}
+	if until != nil && !t.Before(*until) {
+		return false
+	}
+	return true
+}
+
 // ListItems 列表查询。不返回正文(详情走 GetItem / L2 LRU)。
 // 无 Query 时纯内存完成;有 Query 时走 FTS5,但同样不取正文。
+// 短查询(<3 字符,如 "AI"、"Go")trigram 分词无效,自动降级为 LIKE 子串匹配。
 func (s *Store) ListItems(f ItemFilter) ([]model.Item, error) {
 	if f.Query == "" {
 		return s.index.filter(f), nil
 	}
+	if utf8.RuneCountInString(strings.TrimSpace(f.Query)) < 3 {
+		return s.likeItems(f)
+	}
 	return s.searchItems(f)
+}
+
+// likeItems 短查询降级路径: LIKE 匹配标题/摘要/关键词(避开 FTS trigram 的 3 字符限制)。
+func (s *Store) likeItems(f ItemFilter) ([]model.Item, error) {
+	var sb strings.Builder
+	var args []any
+	sb.WriteString(`SELECT id,feed_id,guid,title,link,author,summary,keywords,source,
+		published_at,status,read,created_at FROM items WHERE (title LIKE ? OR summary LIKE ? OR keywords LIKE ?)`)
+	like := "%" + f.Query + "%"
+	args = append(args, like, like, like)
+	if f.FeedID > 0 {
+		sb.WriteString(` AND feed_id=?`)
+		args = append(args, f.FeedID)
+	}
+	if f.Status != "" {
+		sb.WriteString(` AND status=?`)
+		args = append(args, f.Status)
+	}
+	if f.Unread {
+		sb.WriteString(` AND read=0`)
+	}
+	if f.Since != nil {
+		sb.WriteString(` AND COALESCE(published_at,created_at) >= ?`)
+		args = append(args, f.Since.UTC())
+	}
+	if f.Until != nil {
+		sb.WriteString(` AND COALESCE(published_at,created_at) < ?`)
+		args = append(args, f.Until.UTC())
+	}
+	sb.WriteString(` ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?`)
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	args = append(args, f.Limit, f.Offset)
+
+	rows, err := s.db.Query(sb.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Item{}
+	for rows.Next() {
+		var it model.Item
+		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link, &it.Author,
+			&it.Summary, &it.Keywords, &it.Source, &it.PublishedAt, &it.Status,
+			&it.Read, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.index.mu.RLock()
+	for i := range out {
+		if m, ok := s.index.items[out[i].ID]; ok {
+			out[i].Tags = append([]string{}, m.tags...)
+		}
+	}
+	s.index.mu.RUnlock()
+	return out, nil
 }
 
 // searchItems FTS5 搜索路径(无法走内存索引的唯一场景)。
@@ -89,6 +174,14 @@ func (s *Store) searchItems(f ItemFilter) ([]model.Item, error) {
 	}
 	if f.Unread {
 		sb.WriteString(` AND i.read=0`)
+	}
+	if f.Since != nil {
+		sb.WriteString(` AND COALESCE(i.published_at,i.created_at) >= ?`)
+		args = append(args, f.Since.UTC())
+	}
+	if f.Until != nil {
+		sb.WriteString(` AND COALESCE(i.published_at,i.created_at) < ?`)
+		args = append(args, f.Until.UTC())
 	}
 	sb.WriteString(` ORDER BY i.published_at DESC, i.id DESC`)
 	if f.Limit <= 0 {
@@ -165,6 +258,29 @@ func (s *Store) SetEnrichment(id int64, summary, keywords, source string, status
 		m.item.Status = status
 	})
 	return nil
+}
+
+// ResetEnrichment 把已标注文章退回 pending(管线升级后重跑用),返回重置条数。
+func (s *Store) ResetEnrichment(all bool) (int, error) {
+	q := `UPDATE items SET status='pending',summary='',keywords='',source='' WHERE status='processed'`
+	if all {
+		q = `UPDATE items SET status='pending',summary='',keywords='',source='' WHERE status!='pending'`
+	}
+	res, err := s.db.Exec(q)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	// 同步 L1 索引
+	s.index.mu.Lock()
+	for _, m := range s.index.items {
+		if m.item.Status != model.StatusPending {
+			m.item.Status = model.StatusPending
+			m.item.Summary, m.item.Keywords, m.item.Source = "", "", ""
+		}
+	}
+	s.index.mu.Unlock()
+	return int(n), nil
 }
 
 // PendingItems 取待标注文章(含正文,管线需要;批量作业不走缓存)。

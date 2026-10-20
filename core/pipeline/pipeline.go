@@ -58,7 +58,13 @@ func (c *Chain) RunOnce(limit int) (int, error) {
 // --- 内置规则式 Enricher ---
 
 var htmlTag = regexp.MustCompile(`<[^>]*>`)
+var scriptBlock = regexp.MustCompile(`(?is)<(script|style|noscript)[^>]*>.*?</(script|style|noscript)>`)
 var spaces = regexp.MustCompile(`\s+`)
+
+// stripHTML 去掉 script/style 整块再剥标签(JSON-LD 等脚本内容不能进摘要)。
+func stripHTML(s string) string {
+	return htmlTag.ReplaceAllString(scriptBlock.ReplaceAllString(s, " "), " ")
+}
 
 // Summary 摘要器：剥掉 HTML，截取前 N 个字符。
 type Summary struct{ MaxRunes int }
@@ -66,7 +72,7 @@ type Summary struct{ MaxRunes int }
 func (s Summary) Name() string { return "summary" }
 
 func (s Summary) Enrich(it *model.Item) error {
-	text := strings.TrimSpace(spaces.ReplaceAllString(htmlTag.ReplaceAllString(it.Content, " "), " "))
+	text := strings.TrimSpace(spaces.ReplaceAllString(stripHTML(it.Content), " "))
 	max := s.MaxRunes
 	if max <= 0 {
 		max = 200
@@ -105,7 +111,7 @@ type Keywords struct{ TopN int }
 func (k Keywords) Name() string { return "keywords" }
 
 func (k Keywords) Enrich(it *model.Item) error {
-	text := it.Title + " " + htmlTag.ReplaceAllString(it.Content, " ")
+	text := it.Title + " " + stripHTML(it.Content)
 	top := k.TopN
 	if top <= 0 {
 		top = 5

@@ -7,6 +7,8 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -31,6 +33,24 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.warmIndex(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// OpenReadOnly 以只读方式打开(不跑迁移),CLI 查询用。
+// 与服务端并发读安全(SQLite WAL)。
+func OpenReadOnly(path string) (*Store, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("数据库不存在: %s", path)
+	}
+	db, err := sql.Open("sqlite", path+"?_pragma=query_only(1)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{db: db, index: newItemIndex(), content: newContentCache(DefaultContentCacheBytes)}
 	if err := s.warmIndex(); err != nil {
 		db.Close()
 		return nil, err
