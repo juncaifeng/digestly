@@ -17,7 +17,7 @@ func echoCmd() string {
 }
 
 func TestRunAgentStdin(t *testing.T) {
-	out, err := RunAgent(context.Background(), echoCmd(), "hello 世界")
+	out, err := RunAgent(context.Background(), echoCmd(), "hello 世界", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestRunAgentPromptFile(t *testing.T) {
 		t.Skip("windows cmd 路径引用差异,人工验证")
 	}
 	// 用 shell 读文件并回显,验证 {prompt_file} 替换
-	out, err := RunAgent(context.Background(), `cat {prompt_file}`, "文件内容 ABC")
+	out, err := RunAgent(context.Background(), `cat {prompt_file}`, "文件内容 ABC", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,11 +41,11 @@ func TestRunAgentPromptFile(t *testing.T) {
 }
 
 func TestRunAgentErrors(t *testing.T) {
-	if _, err := RunAgent(context.Background(), "", "x"); err == nil {
+	if _, err := RunAgent(context.Background(), "", "x", nil); err == nil {
 		t.Fatal("empty command should error")
 	}
 	// 非零退出码
-	if _, err := RunAgent(context.Background(), "exit 3", "x"); err == nil {
+	if _, err := RunAgent(context.Background(), "exit 3", "x", nil); err == nil {
 		t.Fatal("non-zero exit should error")
 	}
 }
@@ -60,7 +60,7 @@ func TestRunAgentTimeout(t *testing.T) {
 	// 用小超时单独测 ctx: RunAgent 内部超时是 10min,这里测外部 ctx 取消
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if _, err := RunAgent(ctx, "sleep 5", "x"); err == nil {
+	if _, err := RunAgent(ctx, "sleep 5", "x", nil); err == nil {
 		t.Fatal("should error on ctx timeout")
 	}
 }

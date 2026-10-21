@@ -23,8 +23,9 @@ const agentTimeout = 10 * time.Minute
 //   - 含 {prompt_file} 时, prompt 写入临时文件并替换该占位(推荐长 prompt, 如 openclaw --message-file);
 //   - 不含时, prompt 从 stdin 传入(如 claude -p、dsh --profile headless)。
 //
+// env 为追加的环境变量 KEY=VALUE(PATH 前缀、DIGESTLY_DATA 等), 供 agent 内部调用 digestly-cli。
 // stdout 整体作为生成结果返回(截断到 4MiB); 非零退出码返回含 stderr 的错误。
-func RunAgent(ctx context.Context, command, prompt string) (string, error) {
+func RunAgent(ctx context.Context, command, prompt string, env []string) (string, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return "", fmt.Errorf("agent 命令为空, 请在配置里填写命令模板")
@@ -61,10 +62,10 @@ func RunAgent(ctx context.Context, command, prompt string) (string, error) {
 		} else {
 			cmd = exec.CommandContext(ctx, "sh", "-c", strings.ReplaceAll(command, "{prompt_file}", p))
 		}
-		cmd.Env = os.Environ()
 	} else {
 		cmd.Stdin = strings.NewReader(prompt)
 	}
+	cmd.Env = append(os.Environ(), env...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

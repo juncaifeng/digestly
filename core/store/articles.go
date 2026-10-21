@@ -142,3 +142,33 @@ func (s *Store) DeleteArticle(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM articles WHERE id=?`, id)
 	return err
 }
+
+// AddMessage 追加一条会话消息(对话线程持久化)。
+func (s *Store) AddMessage(m *model.CreationMessage) error {
+	res, err := s.db.Exec(`INSERT INTO creation_messages(creation_id,role,content,article_id) VALUES(?,?,?,?)`,
+		m.CreationID, m.Role, m.Content, m.ArticleID)
+	if err != nil {
+		return err
+	}
+	m.ID, _ = res.LastInsertId()
+	return nil
+}
+
+// ListMessages 列出一个创作项目的会话线程(正序)。
+func (s *Store) ListMessages(creationID int64) ([]model.CreationMessage, error) {
+	rows, err := s.db.Query(`SELECT id,creation_id,role,content,article_id,created_at
+		FROM creation_messages WHERE creation_id=? ORDER BY id`, creationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.CreationMessage{}
+	for rows.Next() {
+		var m model.CreationMessage
+		if err := rows.Scan(&m.ID, &m.CreationID, &m.Role, &m.Content, &m.ArticleID, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

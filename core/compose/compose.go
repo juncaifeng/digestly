@@ -5,6 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -157,12 +161,7 @@ func Generate(ctx context.Context, st *store.Store, creationID, templateID int64
 	if instruction = strings.TrimSpace(instruction); instruction != "" {
 		prompt += "\n\n用户本次指示(优先遵循):\n" + instruction
 	}
-	var content string
-	if cfg.Kind == "agent" {
-		content, err = llm.RunAgent(ctx, cfg.Command, prompt)
-	} else {
-		content, err = llm.Chat(ctx, cfg, "你是一名专业的内容创作者。", prompt)
-	}
+	content, err := runBackend(ctx, st, cfg, prompt, plan)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +186,13 @@ func Generate(ctx context.Context, st *store.Store, creationID, templateID int64
 			return a, fmt.Errorf("文章已生成,但素材标记已读失败: %w", err)
 		}
 	}
+	// 对话线程: 用户气泡(指示或「生成文章」) + assistant 气泡挂产出文件
+	userText := instruction
+	if userText == "" {
+		userText = "生成文章"
+	}
+	_ = st.AddMessage(&model.CreationMessage{CreationID: creationID, Role: "user", Content: userText})
+	_ = st.AddMessage(&model.CreationMessage{CreationID: creationID, Role: "assistant", Content: "生成文章: " + title, ArticleID: a.ID})
 	return a, nil
 }
 
@@ -204,4 +210,160 @@ func renderItems(items []model.Item) string {
 		}
 	}
 	return sb.String()
+}
+
+// Chat 多轮对话一轮: 不生成文件、不消耗素材。
+// 线程上下文取最近 maxHistory 条会话; agent 后端额外给 digestly-cli 工具简报,
+// 让它自己取素材全文(真正走 skills); chat 后端则静态注入素材清单。
+func Chat(ctx context.Context, st *store.Store, creationID int64, message string) (string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "", fmt.Errorf("消息不能为空")
+	}
+	creations, err := st.ListCreations()
+	if err != nil {
+		return "", err
+	}
+	var creation *model.Creation
+	for i := range creations {
+		if creations[i].ID == creationID {
+			creation = &creations[i]
+			break
+		}
+	}
+	if creation == nil {
+		return "", fmt.Errorf("创作不存在(id=%d)", creationID)
+	}
+	cfg, err := st.DefaultLLMConfig()
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("还没有默认 LLM 配置,请先在「设置」页添加大模型配置")
+		}
+		return "", err
+	}
+
+	// 会话线程(最近 10 条)拼进 prompt
+	var sb strings.Builder
+	sb.WriteString("这是创作项目「" + creation.Name + "」的对话。\n")
+	if msgs, err := st.ListMessages(creationID); err == nil && len(msgs) > 0 {
+		const maxHistory = 10
+		start := len(msgs) - maxHistory
+		if start < 0 {
+			start = 0
+		}
+		sb.WriteString("\n## 对话记录(旧→新)\n")
+		for _, m := range msgs[start:] {
+			who := "用户"
+			if m.Role == "assistant" {
+				who = "助手"
+			}
+			fmt.Fprintf(&sb, "%s: %s\n", who, m.Content)
+		}
+	}
+	fmt.Fprintf(&sb, "\n## 用户本轮消息\n%s\n", message)
+
+	plan, planErr := BuildPlan(st, creationID, 0, true) // 对话取最新素材做上下文,不限未读
+	if cfg.Kind == "agent" {
+		sb.WriteString(agentBrief(st, creation, plan, planErr))
+	} else {
+		if planErr == nil {
+			sb.WriteString("\n## 素材上下文(仅参考)\n" + renderItems(plan.Items) + "\n")
+		}
+	}
+
+	reply, err := runBackend(ctx, st, cfg, sb.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	// 线程落库: 用户消息 + 助手回复(不挂文件)
+	_ = st.AddMessage(&model.CreationMessage{CreationID: creationID, Role: "user", Content: message})
+	_ = st.AddMessage(&model.CreationMessage{CreationID: creationID, Role: "assistant", Content: reply})
+	return reply, nil
+}
+
+// runBackend 按配置的生成后端执行一次调用。
+// plan 非空时(生成场景)把素材清单并入 agent 简报,让 agent 可自行用 CLI 深读。
+func runBackend(ctx context.Context, st *store.Store, cfg *model.LLMConfig, prompt string, plan *Plan) (string, error) {
+	if cfg.Kind == "agent" {
+		env, brief := agentEnv(st)
+		full := prompt
+		if plan != nil {
+			full += "\n" + brief
+		}
+		return llm.RunAgent(ctx, cfg.Command, full, env)
+	}
+	return llm.Chat(ctx, cfg, "你是一名专业的内容创作者。", prompt)
+}
+
+// agentEnv 组装 agent 进程环境: PATH 前置 digestly-cli 所在目录,便于其直接调用。
+func agentEnv(st *store.Store) (env []string, brief string) {
+	cli, dataDir := resolveCLI(st)
+	env = append(env, "DIGESTLY_DATA="+dataDir)
+	if d := filepath.Dir(cli); d != "." {
+		env = append(env, "PATH="+d+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	return env, agentBriefData(dataDir)
+}
+
+// agentBrief 生成场景的工具简报(追加到 prompt 尾部)。
+func agentBrief(st *store.Store, creation *model.Creation, plan *Plan, planErr error) string {
+	_, dataDir := resolveCLI(st)
+	var sb strings.Builder
+	sb.WriteString(agentBriefData(dataDir))
+	if creation != nil {
+		fmt.Fprintf(&sb, "\n本创作: id=%d 名称=%q。先跑 plan 看素材,按需 get 深读。\n", creation.ID, creation.Name)
+	}
+	if planErr != nil {
+		fmt.Fprintf(&sb, "plan 提示: %v(可自行用 list 检索其它素材)\n", planErr)
+	} else if plan != nil {
+		fmt.Fprintf(&sb, "plan 已就绪: %d 篇素材(id: %v)。建议按需 get 深读后成文。\n", len(plan.ItemIDs), plan.ItemIDs)
+	}
+	return sb.String()
+}
+
+// agentBriefData digestly-cli 工具简报(命令以绝对 -data 写就,开箱即用)。
+func agentBriefData(dataDir string) string {
+	cli, _ := resolveCLIPath()
+	return fmt.Sprintf(`
+## 你的工具: digestly-cli(已安装,直接执行即可调用本机 digestly 数据)
+
+数据目录: %s
+CLI: %s
+
+常用命令:
+- 列素材:   %q -cmd list -data %q [-unread] [-limit 20] [-offset 0] [-q 关键词]
+- 素材计划: %q -cmd plan -creation <id> -data %q [-ids-only]
+- 读全文:   %q -cmd get -id <素材id> -data %q
+- 发现:     %q -cmd feeds|columns|templates|creation-list -data %q
+
+策略: 先 plan 或 list 挑选相关素材 → get 深读重点几篇 → 再动笔成文。
+`, dataDir, cli, cli, dataDir, cli, dataDir, cli, dataDir, cli, dataDir)
+}
+
+// resolveCLI 解析 digestly-cli 路径与数据目录(供 agent 调用)。
+func resolveCLI(st *store.Store) (cli, dataDir string) {
+	cli, _ = resolveCLIPath()
+	dataDir = "."
+	if st != nil && st.Path != "" {
+		dataDir = filepath.Dir(st.Path)
+	}
+	return cli, dataDir
+}
+
+// resolveCLIPath 依次找 PATH、可执行文件同目录下的 digestly-cli。
+func resolveCLIPath() (string, error) {
+	name := "digestly-cli"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p, nil
+	}
+	if exe, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exe), name)
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return name, fmt.Errorf("digestly-cli 不在 PATH 也不在可执行文件同目录")
 }

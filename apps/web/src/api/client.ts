@@ -268,8 +268,23 @@ export interface CreationPlan {
   prompt: string
 }
 
+export interface CreationMessage {
+  id: number
+  creation_id: number
+  role: "user" | "assistant"
+  content: string
+  article_id?: number // >0 表示该轮产出了文件
+  created_at: string
+}
+
 export const creationApi = {
   list: () => req<Creation[]>("/creations"),
+  messages: (id: number) => req<CreationMessage[]>(`/creations/${id}/messages`),
+  chat: (id: number, message: string) =>
+    req<{ reply: string }>(`/creations/${id}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
   create: (c: { name: string; group_name?: string }) =>
     req<Creation>("/creations", { method: "POST", body: JSON.stringify(c) }),
   update: (id: number, c: Partial<Creation>) =>

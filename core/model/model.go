@@ -120,6 +120,17 @@ type Creation struct {
 	CreatedAt  time.Time        `json:"created_at"`
 }
 
+// CreationMessage 创作项目的一条会话记录(对话线程持久化)。
+// role: "user" | "assistant"; ArticleID > 0 表示该轮产出了文件(指向 articles)。
+type CreationMessage struct {
+	ID         int64     `json:"id"`
+	CreationID int64     `json:"creation_id"`
+	Role       string    `json:"role"`
+	Content    string    `json:"content"`
+	ArticleID  int64     `json:"article_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // Article 一篇生成的创作文章。CreationID 指向创作单元;ItemIDs 记录消耗的素材文章 id。
 // UserMessage 本轮对话中用户随生成输入的指示(可空);与文章一起构成会话记录。
 type Article struct {

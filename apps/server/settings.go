@@ -135,7 +135,7 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 			}
 		}
 		if cfg.Kind == "agent" {
-			reply, err := llm.RunAgent(req.Context(), cfg.Command, "ping, 只回复: pong")
+			reply, err := llm.RunAgent(req.Context(), cfg.Command, "ping, 只回复: pong", nil)
 			if err != nil {
 				writeErr(w, 502, err)
 				return

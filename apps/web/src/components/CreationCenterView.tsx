@@ -6,7 +6,7 @@ import {
 
 import {
   api, articleApi, columnApi, creationApi, templateApi,
-  type Article, type ArticleTemplate, type Column, type Creation, type CreationPlan, type CreationSource, type Feed,
+  type Article, type ArticleTemplate, type Column, type Creation, type CreationMessage, type CreationPlan, type CreationSource, type Feed,
 } from "@/api/client"
 import { TemplateManager } from "@/components/TemplateManager"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,7 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
   const [feeds, setFeeds] = useState<Feed[]>([])
   const [templates, setTemplates] = useState<ArticleTemplate[]>([])
   const [articles, setArticles] = useState<Article[]>([])
+  const [msgs, setMsgs] = useState<CreationMessage[]>([])
   const [error, setError] = useState("")
 
   // 左栏: 选中项目 / "templates" / null
@@ -56,18 +57,22 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
 
   const selected = typeof sel === "number" ? creations.find((c) => c.id === sel) ?? null : null
 
-  // 切换项目: 载入历史产出(对话线程由其重建), 清空本轮状态
+  // 切换项目: 载入会话线程 + 产出文件, 清空本轮状态
   useEffect(() => {
-    if (!selected) { setArticles([]); return }
+    if (!selected) { setArticles([]); setMsgs([]); return }
     setNeedForce(false)
     setPlan(null)
     setMsg("")
     setCurrent(null)
     articleApi.list(selected.id).then(setArticles).catch(() => setArticles([]))
+    creationApi.messages(selected.id).then(setMsgs).catch(() => setMsgs([]))
   }, [selected?.id, creations])
 
-  // 对话线程: 每篇产出 = 一轮(可带用户指示气泡), 正序展示
-  const turns = useMemo(() => [...articles].sort((a, b) => a.id - b.id), [articles])
+  const reloadThread = () => {
+    if (!selected) return
+    creationApi.messages(selected.id).then(setMsgs).catch(() => {})
+    articleApi.list(selected.id).then(setArticles).catch(() => {})
+  }
 
   // 按文件夹分组,未分组在底部
   const groups = useMemo(() => {
@@ -130,7 +135,7 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
     load()
   }
 
-  // 生成一轮: 保存草稿配置(弹窗未开时用项目现配置) -> 生成 -> 产出进右栏
+  // 生成一轮(成文): 消耗素材并产出文件,同时记入会话线程
   const generate = async (force = false) => {
     if (!selected) return
     setBusy(true)
@@ -140,7 +145,7 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
       setNeedForce(false)
       setMsg("")
       load()
-      articleApi.list(selected.id).then(setArticles).catch(() => {})
+      reloadThread()
       onGenerated() // 素材已标记已读,刷新未读数
       setCurrent(a)
       setArticleDraft({ title: a.title, content: a.content })
@@ -149,6 +154,22 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
       const m = (e as Error).message
       setNeedForce(!force && m.includes("没有未读文章"))
       setError(`生成失败: ${m}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 对话一轮: 不生成文件、不消耗素材;agent 后端会用 digestly-cli 自行取材
+  const sendChat = async () => {
+    if (!selected || !msg.trim()) return
+    setBusy(true)
+    setError("")
+    try {
+      await creationApi.chat(selected.id, msg.trim())
+      setMsg("")
+      reloadThread()
+    } catch (e) {
+      setError(`对话失败: ${(e as Error).message}`)
     } finally {
       setBusy(false)
     }
@@ -311,35 +332,39 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
             </header>
 
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-              {turns.length === 0 && !plan && (
+              {msgs.length === 0 && !plan && (
                 <p className="text-sm text-muted-foreground text-center mt-10">
-                  还没有对话 — 下方输入想怎么写(可留空),点「生成」即一轮
+                  还没有对话 — 下方输入内容:「发送」是纯对话,「生成」成文并产出文件
                 </p>
               )}
-              {turns.map((a) => (
-                <div key={a.id} className="flex flex-col gap-2">
-                  {a.user_message && (
-                    <div className="self-end max-w-[80%] rounded-lg bg-accent px-3 py-2 text-sm whitespace-pre-wrap">
-                      {a.user_message}
+              {msgs.map((m) => (
+                m.role === "user" ? (
+                  <div key={m.id} className="self-end max-w-[80%] rounded-lg bg-accent px-3 py-2 text-sm whitespace-pre-wrap">
+                    {m.content}
+                  </div>
+                ) : (
+                  <div key={m.id} className="self-start max-w-[85%] rounded-lg border px-3 py-2 flex flex-col gap-1.5">
+                    <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                      {m.article_id ? (
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
+                          <button className="text-sm font-medium text-left truncate hover:underline"
+                            onClick={() => openArticle(m.article_id!)}>
+                            {m.content}
+                          </button>
+                        </div>
+                      ) : (
+                        m.content
+                      )}
                     </div>
-                  )}
-                  <div className="self-start max-w-[85%] rounded-lg border px-3 py-2 flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
-                      <button className="text-sm font-medium text-left truncate hover:underline"
-                        onClick={() => openArticle(a.id)}>
-                        {a.title}
-                      </button>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {a.content.slice(0, 120)}…
-                    </p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{new Date(a.created_at).toLocaleString()}</span>
-                      <button className="hover:underline" onClick={() => openArticle(a.id)}>打开文件</button>
+                      <span>{new Date(m.created_at).toLocaleString()}</span>
+                      {m.article_id && (
+                        <button className="hover:underline" onClick={() => openArticle(m.article_id!)}>打开文件</button>
+                      )}
                     </div>
                   </div>
-                </div>
+                )
               ))}
 
               {plan && (
@@ -387,15 +412,20 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
               <div className="flex gap-2 items-end">
                 <textarea
                   className="flex-1 border rounded-md p-2 text-sm min-h-14 max-h-40 bg-transparent resize-y"
-                  placeholder="本轮想怎么写?(可留空直接生成;上下文仍取自配置的素材源)"
+                  placeholder="输入内容:「发送」= 对话(不产文件);「生成」= 成文(消耗素材);上下文取自配置的素材源"
                   value={msg}
                   onChange={(e) => setMsg(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) generate()
                   }}
                 />
-                <Button size="sm" disabled={busy} onClick={() => generate()}>
-                  <Send className="size-3.5" /> {busy ? "生成中…" : "生成"}
+                <Button size="sm" variant="outline" disabled={busy || !msg.trim()} title="纯对话,不产文件不消耗素材"
+                  onClick={sendChat}>
+                  <Send className="size-3.5" /> 发送
+                </Button>
+                <Button size="sm" disabled={busy} title="成文: 消耗素材生成文件,并记入会话"
+                  onClick={() => generate()}>
+                  <Sparkles className="size-3.5" /> {busy ? "生成中…" : "生成"}
                 </Button>
               </div>
             </footer>
@@ -458,7 +488,7 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
               <span className="ml-auto text-xs text-muted-foreground">{articles.length} 篇</span>
             </div>
             <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">
-              {turns.map((a) => (
+              {articles.map((a) => (
                 <button
                   key={a.id}
                   className="text-left text-sm px-2 py-1.5 rounded hover:bg-accent truncate"
