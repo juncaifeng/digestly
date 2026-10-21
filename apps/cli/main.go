@@ -11,10 +11,15 @@
 //	digestly -cmd creation-add -name 日报1 -group "AI 日报" -sources "column:1,feed:5"
 //	digestly -cmd plan -creation 2 [-force]          # 预览模板+素材+prompt,不生成
 //	digestly -cmd plan -creation 2 -ids-only         # 只输出素材 id,配合 get 分页细读
+//	digestly -cmd generate -creation 2 [-force]      # 调 LLM 生成文章并落库(素材标记已读)
 //	digestly -cmd get -id 123                        # 按 id 读单篇文章全文
+//	digestly -cmd read -id 123 / unread -id 123      # 标记已读/未读
+//	digestly -cmd archive -id 123 / unarchive -id 123 # 归档/恢复
+//	digestly -cmd templates                          # 列出大纲模板
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -45,15 +50,15 @@ func main() {
 		offset  = flag.Int("offset", 0, "分页偏移")
 		full    = flag.Bool("full", false, "输出正文(默认只给摘要)")
 		format  = flag.String("format", "md", "输出格式: md | text | json")
-		cmd     = flag.String("cmd", "list", "命令: list | feeds | stats | get | creation-list | creation-add | creation-update | creation-del | plan")
-		id      = flag.Int64("id", 0, "条目/创作 id(get / creation-update / creation-del)")
+		cmd     = flag.String("cmd", "list", "命令: list | feeds | columns | stats | get | read | unread | archive | unarchive | templates | creation-list | creation-add | creation-update | creation-del | plan | generate")
+		id      = flag.Int64("id", 0, "条目/创作 id(get / read / unread / archive / unarchive / creation-update / creation-del)")
 		// 创作单元参数
-		creation = flag.String("creation", "", "创作单元(id 或名称),plan 用")
+		creation = flag.String("creation", "", "创作单元(id 或名称),plan / generate 用")
 		name     = flag.String("name", "", "创作名称(creation-add/update)")
 		group    = flag.String("group", "", "创作文件夹(creation-add/update)")
-		template = flag.Int64("template", 0, "大纲模板 id(creation-add/update / plan 覆盖默认模板)")
+		template = flag.Int64("template", 0, "大纲模板 id(creation-add/update / plan/generate 覆盖默认模板)")
 		sources  = flag.String("sources", "", "素材源,逗号分隔: column:1,feed:5(creation-add/update)")
-		force    = flag.Bool("force", false, "plan: 不限未读,取最新素材")
+		force    = flag.Bool("force", false, "plan/generate: 不限未读,取最新素材")
 		idsOnly  = flag.Bool("ids-only", false, "plan: 只输出素材 id 列表(分页细读用)")
 	)
 	flag.Parse()
@@ -62,7 +67,7 @@ func main() {
 	var st *store.Store
 	var err error
 	switch *cmd {
-	case "creation-add", "creation-update", "creation-del":
+	case "creation-add", "creation-update", "creation-del", "generate", "read", "unread", "archive", "unarchive":
 		st, err = store.Open(*dataDir + "/digestly.db")
 	default:
 		st, err = store.OpenReadOnly(*dataDir + "/digestly.db")
@@ -91,6 +96,56 @@ func main() {
 		fmt.Printf("已删除创作 %d\n", *id)
 	case "plan":
 		cmdPlan(st, *creation, *template, *force, *idsOnly, *format, *limit, *offset, *full)
+	case "generate":
+		cmdGenerate(st, *creation, *template, *force, *format)
+	case "read", "unread":
+		if *id <= 0 {
+			fatal("%s 需要 -id", *cmd)
+		}
+		if err := st.MarkRead(*id, *cmd == "read"); err != nil {
+			fatal("标记失败: %v", err)
+		}
+		fmt.Printf("已标记 %d 为%s\n", *id, map[bool]string{true: "已读", false: "未读"}[*cmd == "read"])
+	case "archive", "unarchive":
+		if *id <= 0 {
+			fatal("%s 需要 -id", *cmd)
+		}
+		if err := st.SetArchived(*id, *cmd == "archive"); err != nil {
+			fatal("归档失败: %v", err)
+		}
+		fmt.Printf("已%s %d\n", map[bool]string{true: "归档", false: "恢复"}[*cmd == "archive"], *id)
+	case "templates":
+		tpls, err := st.ListTemplates()
+		if err != nil {
+			fatal("%v", err)
+		}
+		if *format == "json" {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(tpls)
+			return
+		}
+		for _, t := range tpls {
+			builtin := ""
+			if t.BuiltIn {
+				builtin = " [内置]"
+			}
+			fmt.Printf("%-4d %s%s\n", t.ID, trunc(t.Name, 30), builtin)
+		}
+	case "columns":
+		cols, err := st.ListColumns()
+		if err != nil {
+			fatal("%v", err)
+		}
+		if *format == "json" {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(cols)
+			return
+		}
+		for _, c := range cols {
+			fmt.Printf("%-4d %-24s %d 源 / %d 收藏\n", c.ID, trunc(c.Name, 24), c.FeedCount, c.ItemCount)
+		}
 	case "feeds":
 		feeds, err := st.ListFeeds()
 		if err != nil {
@@ -511,11 +566,30 @@ func cmdPlan(st *store.Store, creationS string, templateID int64, force, idsOnly
 	fmt.Printf("\n## 完整 prompt(%d 字符)\n\n%s\n", len(p.Prompt), p.Prompt)
 }
 
+// cmdGenerate 调 LLM 生成一篇文章并落库(素材标记已读)。有真实副作用。
+func cmdGenerate(st *store.Store, creationS string, templateID int64, force bool, format string) {
+	creationID, err := resolveCreation(st, creationS)
+	if err != nil {
+		fatal("%v", err)
+	}
+	a, err := compose.Generate(context.Background(), st, creationID, templateID, force)
+	if err != nil {
+		fatal("生成失败: %v", err)
+	}
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(a)
+		return
+	}
+	fmt.Printf("# %s\n\n- id: %d\n- 消耗素材: %d 篇\n\n%s\n", a.Title, a.ID, len(a.ItemIDs), a.Content)
+}
+
 // resolveCreation 把 -creation 的 id 或名称解析成创作 id。
 func resolveCreation(st *store.Store, s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return 0, fmt.Errorf("plan 需要 -creation <id 或名称>")
+		return 0, fmt.Errorf("需要 -creation <id 或名称>")
 	}
 	cs, err := st.ListCreations()
 	if err != nil {
