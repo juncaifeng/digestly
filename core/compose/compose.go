@@ -152,7 +152,12 @@ func Generate(ctx context.Context, st *store.Store, creationID, templateID int64
 		}
 		return nil, err
 	}
-	content, err := llm.Chat(ctx, cfg, "你是一名专业的内容创作者。", plan.Prompt)
+	var content string
+	if cfg.Kind == "agent" {
+		content, err = llm.RunAgent(ctx, cfg.Command, plan.Prompt)
+	} else {
+		content, err = llm.Chat(ctx, cfg, "你是一名专业的内容创作者。", plan.Prompt)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -18,11 +18,11 @@ func maskAPIKey(key string) string {
 	return "****" + key[len(key)-4:]
 }
 
-const llmConfigCols = `id,name,base_url,api_key,model,temperature,max_tokens,is_default,created_at,updated_at`
+const llmConfigCols = `id,name,kind,command,base_url,api_key,model,temperature,max_tokens,is_default,created_at,updated_at`
 
 func scanLLMConfig(row interface{ Scan(...any) error }) (*model.LLMConfig, error) {
 	var c model.LLMConfig
-	if err := row.Scan(&c.ID, &c.Name, &c.BaseURL, &c.APIKey, &c.Model,
+	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &c.Command, &c.BaseURL, &c.APIKey, &c.Model,
 		&c.Temperature, &c.MaxTokens, &c.IsDefault, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -72,9 +72,9 @@ func (s *Store) AddLLMConfig(c *model.LLMConfig) error {
 			return err
 		}
 	}
-	res, err := s.db.Exec(`INSERT INTO llm_configs(name,base_url,api_key,model,temperature,max_tokens,is_default)
-		VALUES(?,?,?,?,?,?,?)`,
-		c.Name, strings.TrimSpace(c.BaseURL), c.APIKey, c.Model, c.Temperature, c.MaxTokens, c.IsDefault)
+	res, err := s.db.Exec(`INSERT INTO llm_configs(name,kind,command,base_url,api_key,model,temperature,max_tokens,is_default)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
+		c.Name, c.Kind, c.Command, strings.TrimSpace(c.BaseURL), c.APIKey, c.Model, c.Temperature, c.MaxTokens, c.IsDefault)
 	if err != nil {
 		return err
 	}
@@ -89,8 +89,8 @@ func (s *Store) UpdateLLMConfig(c *model.LLMConfig) error {
 			return err
 		}
 	}
-	q := `UPDATE llm_configs SET name=?,base_url=?,model=?,temperature=?,max_tokens=?,is_default=?,updated_at=CURRENT_TIMESTAMP`
-	args := []any{c.Name, strings.TrimSpace(c.BaseURL), c.Model, c.Temperature, c.MaxTokens, c.IsDefault}
+	q := `UPDATE llm_configs SET name=?,kind=?,command=?,base_url=?,model=?,temperature=?,max_tokens=?,is_default=?,updated_at=CURRENT_TIMESTAMP`
+	args := []any{c.Name, c.Kind, c.Command, strings.TrimSpace(c.BaseURL), c.Model, c.Temperature, c.MaxTokens, c.IsDefault}
 	if c.APIKey != "" {
 		q += `,api_key=?`
 		args = append(args, c.APIKey)

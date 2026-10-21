@@ -153,6 +153,8 @@ export const columnApi = {
 export interface LLMConfig {
   id: number
   name: string
+  kind: "chat" | "agent" // chat = 直连 OpenAI 兼容 API; agent = 外部 Agent 进程
+  command: string // kind=agent 的命令模板; {prompt_file} 占位, 无占位则 prompt 走 stdin
   base_url: string
   api_key: string // 列表接口返回掩码;提交时空串 = 不修改
   model: string
@@ -215,8 +217,16 @@ export interface ProviderPreset {
   models: ModelPreset[]
 }
 
+export interface AgentPreset {
+  name: string
+  command: string
+  docs: string
+  note: string
+}
+
 export const llmApi = {
   presets: () => req<ProviderPreset[]>("/llm/presets"),
+  agentPresets: () => req<AgentPreset[]>("/llm/agent-presets"),
   list: () => req<LLMConfig[]>("/llm/configs"),
   create: (c: Partial<LLMConfig>) =>
     req<LLMConfig>("/llm/configs", { method: "POST", body: JSON.stringify(c) }),
@@ -225,7 +235,7 @@ export const llmApi = {
   remove: (id: number) => req<void>(`/llm/configs/${id}`, { method: "DELETE" }),
   setDefault: (id: number) =>
     req<void>(`/llm/configs/${id}/default`, { method: "POST" }),
-  test: (body: { id?: number; base_url?: string; api_key?: string; model?: string }) =>
+  test: (body: { id?: number; kind?: string; command?: string; base_url?: string; api_key?: string; model?: string }) =>
     req<{ reply: string }>("/llm/test", { method: "POST", body: JSON.stringify(body) }),
 }
 

@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS column_items (
 CREATE TABLE IF NOT EXISTS llm_configs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
+  kind        TEXT NOT NULL DEFAULT 'chat',
+  command     TEXT NOT NULL DEFAULT '',
   base_url    TEXT NOT NULL,
   api_key     TEXT NOT NULL DEFAULT '',
   model       TEXT NOT NULL,

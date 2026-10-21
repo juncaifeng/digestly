@@ -1,0 +1,10 @@
+# 外部 Agent 运行时预设 schema:
+#   name:     运行时名(唯一,用户目录 <data>/llm_agents/*.yml 同名文件覆盖内置)
+#   command:  命令模板;含 {prompt_file} 时 prompt 写临时文件替换该占位,否则 prompt 走 stdin
+#   docs:     文档地址
+#   note:     备注(前置要求等)
+
+name: DSH (DeepSeek Harness)
+command: dsh --profile headless
+docs: https://github.com/deepseek-ai/deepseek-harness
+note: prompt 走 stdin,stdout 为生成文本;需已安装 dsh 并配好模型

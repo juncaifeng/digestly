@@ -101,6 +101,18 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	// 同样探测补 llm_configs.kind / command(生成后端: 直连 API 或外部 Agent 进程)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('llm_configs') WHERE name='kind'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.Exec(`ALTER TABLE llm_configs ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE llm_configs ADD COLUMN command TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
 	if err := s.migrateArticlesToCreations(); err != nil {
 		return err
 	}

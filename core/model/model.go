@@ -77,10 +77,13 @@ type Tag struct {
 	Name string `json:"name"`
 }
 
-// LLMConfig 一个大模型供应商配置(OpenAI 兼容接口)。
+// LLMConfig 一个生成后端配置。
+// kind=chat: 直连 OpenAI 兼容接口;kind=agent: 外部 Agent 进程(dsh / openclaw / claude 等)。
 type LLMConfig struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
+	Kind        string    `json:"kind"`    // "chat"(默认) | "agent"
+	Command     string    `json:"command"` // kind=agent 命令模板; {prompt_file} 占位, 无占位则 prompt 走 stdin
 	BaseURL     string    `json:"base_url"`
 	APIKey      string    `json:"api_key"` // 列表/详情接口返回掩码;写空串表示不修改
 	Model       string    `json:"model"`
