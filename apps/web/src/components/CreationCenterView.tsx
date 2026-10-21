@@ -429,13 +429,13 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
               <Card>
                 <CardHeader className="space-y-0">
                   <CardTitle className="text-base">
-                    生成预览 · 模板「{plan.template.name}」 · 素材 {plan.item_ids.length} 篇
+                    生成预览 · 模板「{plan.template?.name ?? ""}」 · 素材 {plan.item_ids?.length ?? 0} 篇
                     {plan.force && <Badge variant="secondary" className="ml-2">强制(不限未读)</Badge>}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-2 text-sm">
                   <div className="flex flex-col gap-1">
-                    {plan.items.map((it) => (
+                    {(plan.items ?? []).map((it) => (
                       <div key={it.id} className="flex items-baseline gap-2 px-1">
                         <span className="text-xs text-muted-foreground shrink-0">#{it.id}</span>
                         <span className="truncate">{it.title}</span>
@@ -444,13 +444,13 @@ export function CreationCenterView({ onGenerated }: { onGenerated: () => void })
                       </div>
                     ))}
                   </div>
-                  {plan.history_titles.length > 0 && (
+                  {(plan.history_titles?.length ?? 0) > 0 && (
                     <p className="text-xs text-muted-foreground">
                       历史上下文 {plan.history_titles.length} 篇: {plan.history_titles[0]} 等
                     </p>
                   )}
                   <details>
-                    <summary className="text-xs text-muted-foreground cursor-pointer">完整 prompt({plan.prompt.length} 字符)</summary>
+                    <summary className="text-xs text-muted-foreground cursor-pointer">完整 prompt({(plan.prompt ?? "").length} 字符)</summary>
                     <pre className="text-xs text-muted-foreground whitespace-pre-wrap border rounded-md p-2 mt-1 max-h-96 overflow-y-auto">{plan.prompt}</pre>
                   </details>
                 </CardContent>

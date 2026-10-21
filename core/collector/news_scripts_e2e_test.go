@@ -9,7 +9,11 @@ import (
 )
 
 // 端到端跑 digestly-collectors 仓库里的新闻采集脚本(需要真实网络)。
+// CI 门禁用 go test -short 跳过;本地全量跑可验证脚本。
 func TestNewsScripts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e 依赖真实网络与本地 collectors 仓库,-short 跳过")
+	}
 	cases := []struct {
 		file string
 		name string

@@ -69,7 +69,7 @@ func BuildPlan(st *store.Store, creationID, templateID int64, force bool) (*Plan
 	if len(feedIDs) == 0 {
 		return nil, fmt.Errorf("该创作还没有配置素材源,请先勾选专栏或订阅源")
 	}
-	var items []model.Item
+	var items = make([]model.Item, 0)
 	for _, fid := range feedIDs {
 		fis, err := st.ListItems(store.ItemFilter{FeedID: fid, Unread: !force, Limit: MaxSourceItems})
 		if err != nil {
@@ -107,7 +107,7 @@ func BuildPlan(st *store.Store, creationID, templateID int64, force bool) (*Plan
 	}
 	// 历史创作标题作为上下文: 延续选题脉络、避免重复选题(最近 10 篇,新→旧)
 	const maxHistory = 10
-	var historyTitles []string
+	var historyTitles = make([]string, 0, maxHistory)
 	if history, err := st.ListArticles(creationID); err == nil {
 		for i, a := range history {
 			if i >= maxHistory {
