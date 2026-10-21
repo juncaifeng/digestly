@@ -37,6 +37,12 @@
     "externalBin": [
       "binaries/digestly-server",
       "binaries/digestly-cli"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "template": "wix/main.wxs",
+        "fragmentPaths": ["wix/path.wxs"]
+      }
+    }
   }
 }

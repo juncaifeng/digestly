@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?if $(sys.BUILDARCH)="x86"?>
+    <?define Win64 = "no" ?>
+<?else?>
+    <?define Win64 = "yes" ?>
+<?endif?>
+<!-- 把安装目录追加到系统 PATH;由 main.wxs 的 Environment feature 引用,用户安装时可勾选/取消 -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AddToPath" Guid="8E7A3B2C-1D4F-4E5A-9C6B-2F7D8E9A0B1C" Win64="$(var.Win64)">
+        <Environment Id="DigestlyPathEnv" Name="PATH" Value="[INSTALLDIR]" Permanent="no" Part="last" Action="set" System="yes" />
+        <RegistryValue Root="HKCU" Key="Software\digestly\digestly" Name="AddToPath" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>
