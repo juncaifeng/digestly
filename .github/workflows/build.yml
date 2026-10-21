@@ -128,13 +128,14 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm -C apps/web build
 
-      - name: 编译 Go sidecar
+      - name: 编译 Go sidecar(server + cli)
         working-directory: apps/server
         run: |
           TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
           mkdir -p ../desktop/src-tauri/binaries
           EXT=""; [ "${{ matrix.os }}" = "windows-latest" ] && EXT=".exe"
           go build -ldflags "-s -w" -o "../desktop/src-tauri/binaries/digestly-server-${TRIPLE}${EXT}" .
+          cd ../cli && go build -ldflags "-s -w" -o "../desktop/src-tauri/binaries/digestly-cli-${TRIPLE}${EXT}" .
         shell: bash
 
       - name: 打包 Tauri

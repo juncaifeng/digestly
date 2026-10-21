@@ -19,6 +19,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,7 +32,7 @@ import (
 
 func main() {
 	var (
-		dataDir = flag.String("data", "data", "数据目录(与服务端 -data 一致)")
+		dataDir = flag.String("data", defaultDataDir(), "数据目录(默认自动探测桌面端数据目录,否则 ./data)")
 		sinceS  = flag.String("since", "", "起始时间: today | yesterday | 7d | 30d | 2026-10-20 | RFC3339")
 		untilS  = flag.String("until", "", "截止时间(不含),格式同 -since")
 		query   = flag.String("q", "", "全文搜索(标题/正文/摘要/关键词)")
@@ -534,6 +536,26 @@ func resolveCreation(st *store.Store, s string) (int64, error) {
 		return 0, fmt.Errorf("创作不存在(id=%d)", id)
 	}
 	return 0, fmt.Errorf("找不到创作 %q", s)
+}
+
+// defaultDataDir 自动探测桌面端(Tauri app_data_dir)的数据目录:
+// Windows %APPDATA%\com.digestly.app, macOS ~/Library/Application Support/com.digestly.app,
+// Linux ~/.local/share/com.digestly.app。找不到则退回 ./data。
+func defaultDataDir() string {
+	var dir string
+	if runtime.GOOS == "linux" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, ".local", "share", "com.digestly.app")
+		}
+	} else if cfg, err := os.UserConfigDir(); err == nil {
+		dir = filepath.Join(cfg, "com.digestly.app")
+	}
+	if dir != "" {
+		if _, err := os.Stat(filepath.Join(dir, "digestly.db")); err == nil {
+			return dir
+		}
+	}
+	return "data"
 }
 
 func fatal(format string, a ...any) {

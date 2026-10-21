@@ -35,7 +35,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/digestly-server"
+      "binaries/digestly-server",
+      "binaries/digestly-cli"
     ]
   }
 }
