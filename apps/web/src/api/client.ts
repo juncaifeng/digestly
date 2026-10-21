@@ -284,10 +284,17 @@ export const marketApi = {
       method: "POST",
       body: JSON.stringify({ url, title }),
     }),
+  // 只解析不入库: 预览第三方源里的订阅源清单
+  parseSource: (url: string) =>
+    req<{ source: string; count: number; feeds: SourceFeed[] }>("/market/sources/parse", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
   removeSource: (id: number) => req<void>(`/market/sources/${id}`, { method: "DELETE" }),
   refreshSource: (id: number) =>
     req<{ count: number }>(`/market/sources/${id}/refresh`, { method: "POST" }),
-  list: () => req<MarketListResult>("/market"),
+  // waitReady=true 时首轮加载挂起等后台预热完成(上限 5s)
+  list: (waitReady = false) => req<MarketListResult>(`/market${waitReady ? "?wait_ready=1" : ""}`),
   refresh: () => req<{ refreshed: boolean; collectors: number }>("/market/refresh", { method: "POST" }),
   install: (name: string) =>
     req<InstallResult>("/market/install", { method: "POST", body: JSON.stringify({ name }) }),

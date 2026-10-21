@@ -54,9 +54,9 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, fm *market.FeedMarket
 		writeJSON(w, 200, map[string]any{"collectors": out, "stale": stale, "last_fetch": last})
 	})
 
-	// 解析第三方市场源: 只取地址里明确声明的订阅源清单(OPML / feeds.json),
+	// 解析第三方市场源(只解析不入库): 只取地址里明确声明的订阅源清单(OPML / feeds.json),
 	// 没有清单就报"没有"——不猜测、不把仓库 commits/releases 当订阅源。
-	r.Post("/market/sources", func(w http.ResponseWriter, req *http.Request) {
+	r.Post("/market/sources/parse", func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
 			URL string `json:"url"`
 		}
