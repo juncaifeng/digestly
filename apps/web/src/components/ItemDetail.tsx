@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import DOMPurify from "dompurify"
-import { ExternalLink, X } from "lucide-react"
+import { Archive, ArchiveRestore, ExternalLink, X } from "lucide-react"
 
-import { api, type Item, type ItemStatus } from "@/api/client"
+import { api, columnApi, type Column, type Item, type ItemStatus } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,18 +24,39 @@ export function ItemDetail({
 }) {
   const [tag, setTag] = useState("")
   const [content, setContent] = useState("")
+  const [columns, setColumns] = useState<Column[]>([])
+  const [favs, setFavs] = useState<number[]>([])
   const articleRef = useRef<HTMLElement>(null)
 
   // 切换文章: 回到顶部 + 单独拉取正文(列表接口不再携带 content,详情走 L2 LRU)
   useEffect(() => {
     articleRef.current?.scrollTo({ top: 0 })
     setContent("")
+    setFavs([])
     let cancelled = false
     api.getItem(item.id)
-      .then((full) => { if (!cancelled) setContent(full.content) })
+      .then((full) => {
+        if (cancelled) return
+        setContent(full.content)
+        setFavs(full.column_ids ?? [])
+      })
       .catch(console.error)
     return () => { cancelled = true }
   }, [item.id])
+
+  useEffect(() => {
+    columnApi.list().then(setColumns).catch(console.error)
+  }, [])
+
+  const toggleFav = async (columnId: number) => {
+    if (favs.includes(columnId)) {
+      await columnApi.unfavorite(item.id, columnId)
+      setFavs(favs.filter((c) => c !== columnId))
+    } else {
+      await columnApi.favorite(item.id, columnId)
+      setFavs([...favs, columnId])
+    }
+  }
 
   const addTag = async () => {
     if (!tag.trim()) return
@@ -62,6 +83,13 @@ export function ItemDetail({
           </div>
         </div>
         <div className="flex gap-1 shrink-0">
+          <Button
+            variant="ghost" size="icon"
+            title={item.archived ? "取消归档" : "归档(从列表隐藏,不删除)"}
+            onClick={() => api.archiveItem(item.id, !item.archived).then(() => { onTagged(); onClose() })}
+          >
+            {item.archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+          </Button>
           <Button variant="ghost" size="icon" asChild>
             <a href={item.link} target="_blank" rel="noreferrer">
               <ExternalLink className="size-4" />
@@ -88,6 +116,22 @@ export function ItemDetail({
         />
         <Button size="sm" variant="outline" onClick={addTag}>添加</Button>
       </div>
+
+      {columns.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b flex-wrap">
+          <span className="text-xs text-muted-foreground shrink-0">收藏到专栏:</span>
+          {columns.map((c) => (
+            <Badge
+              key={c.id}
+              variant={favs.includes(c.id) ? "default" : "outline"}
+              className="cursor-pointer"
+              onClick={() => void toggleFav(c.id)}
+            >
+              {c.name}
+            </Badge>
+          ))}
+        </div>
+      )}
 
       <article
         ref={articleRef}

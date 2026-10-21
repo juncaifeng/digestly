@@ -56,7 +56,7 @@ func main() {
 	r.Use(middleware.Logger, middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"http://localhost:*", "http://127.0.0.1:*", "tauri://localhost", "http://tauri.localhost"},
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type"},
 	}))
 	r.Route("/api", func(r chi.Router) {
@@ -66,6 +66,10 @@ func main() {
 		registerStatsRoutes(r, st)
 		registerPipelineRoutes(r, chain)
 		registerMarketRoutes(r, mc, fm, st, collector.JSDir)
+			registerColumnRoutes(r, st)
+		registerSettingsRoutes(r, st, *dataDir)
+		registerArticleRoutes(r, st)
+		registerCreationRoutes(r, st)
 	})
 
 	log.Printf("digestly server listening on %s (data: %s)", *addr, *dataDir)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -97,6 +98,20 @@ func (s *Scheduler) RefreshFeed(ctx context.Context, feedID int64) error {
 	items, err := c.Collect(ctx, collector.Source{FeedID: feed.ID, URL: feed.URL, Config: cfg})
 	if err != nil {
 		return err
+	}
+	// 历史上限: 只留最近 MaxItems 条再入库,防止单次全量灌入(如整站 RSS)
+	if feed.MaxItems > 0 && len(items) > feed.MaxItems {
+		sort.SliceStable(items, func(i, j int) bool {
+			pi, pj := items[i].PublishedAt, items[j].PublishedAt
+			if pi == nil {
+				return false // 无发布时间的排最后
+			}
+			if pj == nil {
+				return true
+			}
+			return pi.After(*pj)
+		})
+		items = items[:feed.MaxItems]
 	}
 	n, err := s.store.InsertItems(items)
 	if err != nil {

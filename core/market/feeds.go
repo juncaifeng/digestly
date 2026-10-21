@@ -8,8 +8,8 @@ package market
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -180,7 +180,7 @@ func parseOPML(catalogURL string, body []byte) ([]MarketFeed, error) {
 			}
 			if n.XMLURL != "" {
 				title := strings.TrimSpace(firstNonEmpty(n.Title, n.Text))
-				tags := []string{"opml"}
+				tags := []string{}
 				if cur != "" {
 					tags = append(tags, cur)
 				}
@@ -257,6 +257,9 @@ func parseJSONCatalog(catalogURL string, body []byte) ([]MarketFeed, error) {
 			continue
 		}
 		tags := f.Tags
+		if tags == nil {
+			tags = []string{}
+		}
 		if len(tags) == 0 {
 			tags = []string{"json"}
 		}

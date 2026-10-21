@@ -4,13 +4,19 @@ import "github.com/juncaifeng/digestly/core/model"
 
 func (s *Store) AddFeed(f *model.Feed) error {
 	res, err := s.db.Exec(
-		`INSERT INTO feeds(title,url,collector,config,interval_min) VALUES(?,?,?,?,?)`,
-		f.Title, f.URL, f.Collector, f.Config, f.IntervalMin)
+		`INSERT INTO feeds(title,url,collector,config,interval_min,max_items) VALUES(?,?,?,?,?,?)`,
+		f.Title, f.URL, f.Collector, f.Config, f.IntervalMin, f.MaxItems)
 	if err != nil {
 		return err
 	}
 	f.ID, _ = res.LastInsertId()
 	return nil
+}
+
+// SetFeedMaxItems 设置历史上限(0 = 不限)。
+func (s *Store) SetFeedMaxItems(id int64, maxItems int) error {
+	_, err := s.db.Exec(`UPDATE feeds SET max_items=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, maxItems, id)
+	return err
 }
 
 func (s *Store) DeleteFeed(id int64) error {
@@ -35,7 +41,9 @@ func (s *Store) DeleteFeed(id int64) error {
 
 func (s *Store) ListFeeds() ([]model.Feed, error) {
 	rows, err := s.db.Query(
-		`SELECT id,title,url,collector,config,interval_min,created_at,updated_at FROM feeds ORDER BY id`)
+		`SELECT f.id,f.title,f.column_id,f.url,f.collector,f.config,f.interval_min,f.max_items,f.created_at,f.updated_at,
+			(SELECT COUNT(*) FROM items i WHERE i.feed_id=f.id AND i.read=0 AND i.archived=0) AS unread_count
+		FROM feeds f ORDER BY f.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -43,8 +51,8 @@ func (s *Store) ListFeeds() ([]model.Feed, error) {
 	out := []model.Feed{}
 	for rows.Next() {
 		var f model.Feed
-		if err := rows.Scan(&f.ID, &f.Title, &f.URL, &f.Collector, &f.Config,
-			&f.IntervalMin, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.Title, &f.ColumnID, &f.URL, &f.Collector, &f.Config,
+			&f.IntervalMin, &f.MaxItems, &f.CreatedAt, &f.UpdatedAt, &f.UnreadCount); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

@@ -12,18 +12,20 @@ import (
 // 列表/过滤/排序/分页全部走内存,零 SQL;写操作先落库再同步索引(write-through)。
 
 type itemMeta struct {
-	item model.Item // Content 恒为空
-	tags []string
+	item    model.Item // Content 恒为空
+	tags    []string
+	favCols []int64 // 手动收藏进的专栏 id
 }
 
 type itemIndex struct {
-	mu    sync.RWMutex
-	items map[int64]*itemMeta
-	order []int64 // 与 SQL 一致: published_at DESC(NULL 最后), id DESC
+	mu       sync.RWMutex
+	items    map[int64]*itemMeta
+	order    []int64         // 与 SQL 一致: published_at DESC(NULL 最后), id DESC
+	feedCols map[int64]int64 // feed_id -> column_id(订阅继承通道)
 }
 
 func newItemIndex() *itemIndex {
-	return &itemIndex{items: map[int64]*itemMeta{}}
+	return &itemIndex{items: map[int64]*itemMeta{}, feedCols: map[int64]int64{}}
 }
 
 // ranksBefore 排序比较: 与 ORDER BY published_at DESC, id DESC 等价
@@ -99,7 +101,14 @@ func (ix *itemIndex) filter(f ItemFilter) []model.Item {
 		if f.Unread && it.Read {
 			continue
 		}
+		if it.Archived != f.Archived {
+			continue
+		}
 		if f.Tag != "" && !hasTag(m.tags, f.Tag) {
+			continue
+		}
+		// 专栏过滤: 订阅继承 ∪ 手动收藏
+		if f.ColumnID > 0 && ix.feedCols[it.FeedID] != f.ColumnID && !hasCol(m.favCols, f.ColumnID) {
 			continue
 		}
 		if skipped < f.Offset {
@@ -114,6 +123,15 @@ func (ix *itemIndex) filter(f ItemFilter) []model.Item {
 		}
 	}
 	return out
+}
+
+func hasCol(cols []int64, id int64) bool {
+	for _, c := range cols {
+		if c == id {
+			return true
+		}
+	}
+	return false
 }
 
 func hasTag(tags []string, name string) bool {

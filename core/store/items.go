@@ -49,15 +49,17 @@ func (s *Store) InsertItems(items []model.Item) (int, error) {
 
 // ItemFilter 列表查询条件。
 type ItemFilter struct {
-	FeedID int64
-	Status model.ItemStatus
-	Tag    string
-	Query  string // FTS5 全文搜索(走 SQL;其余条件走 L1 内存索引)
-	Unread bool
-	Since  *time.Time // 发布时间下限(含)
-	Until  *time.Time // 发布时间上限(不含);无发布时间的条目按 created_at 兜底
-	Limit  int
-	Offset int
+	FeedID   int64
+	ColumnID int64 // 专栏: 订阅继承 ∪ 手动收藏
+	Status   model.ItemStatus
+	Tag      string
+	Query    string // FTS5 全文搜索(走 SQL;其余条件走 L1 内存索引)
+	Unread   bool
+	Archived bool // false = 只看未归档(默认); true = 只看已归档
+	Since    *time.Time // 发布时间下限(含)
+	Until    *time.Time // 发布时间上限(不含);无发布时间的条目按 created_at 兜底
+	Limit    int
+	Offset   int
 }
 
 // inRange 发布时间区间判断;无 published_at 的条目用 created_at 参与比较。
@@ -94,12 +96,17 @@ func (s *Store) likeItems(f ItemFilter) ([]model.Item, error) {
 	var sb strings.Builder
 	var args []any
 	sb.WriteString(`SELECT id,feed_id,guid,title,link,author,summary,keywords,source,
-		published_at,status,read,created_at FROM items WHERE (title LIKE ? OR summary LIKE ? OR keywords LIKE ?)`)
+		published_at,status,read,archived,created_at FROM items WHERE archived=? AND (title LIKE ? OR summary LIKE ? OR keywords LIKE ?)`)
 	like := "%" + f.Query + "%"
-	args = append(args, like, like, like)
+	args = append(args, f.Archived, like, like, like)
 	if f.FeedID > 0 {
 		sb.WriteString(` AND feed_id=?`)
 		args = append(args, f.FeedID)
+	}
+	if f.ColumnID > 0 {
+		sb.WriteString(` AND (feed_id IN (SELECT id FROM feeds WHERE column_id=?)
+			OR id IN (SELECT item_id FROM column_items WHERE column_id=?))`)
+		args = append(args, f.ColumnID, f.ColumnID)
 	}
 	if f.Status != "" {
 		sb.WriteString(` AND status=?`)
@@ -132,7 +139,7 @@ func (s *Store) likeItems(f ItemFilter) ([]model.Item, error) {
 		var it model.Item
 		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link, &it.Author,
 			&it.Summary, &it.Keywords, &it.Source, &it.PublishedAt, &it.Status,
-			&it.Read, &it.CreatedAt); err != nil {
+			&it.Read, &it.Archived, &it.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, it)
@@ -155,7 +162,7 @@ func (s *Store) searchItems(f ItemFilter) ([]model.Item, error) {
 	var sb strings.Builder
 	var args []any
 	sb.WriteString(`SELECT i.id,i.feed_id,i.guid,i.title,i.link,i.author,
-		i.summary,i.keywords,i.source,i.published_at,i.status,i.read,i.created_at
+		i.summary,i.keywords,i.source,i.published_at,i.status,i.read,i.archived,i.created_at
 		FROM items i JOIN items_fts ft ON ft.rowid = i.id AND items_fts MATCH ?`)
 	args = append(args, quoteFTS(f.Query))
 	if f.Tag != "" {
@@ -163,10 +170,16 @@ func (s *Store) searchItems(f ItemFilter) ([]model.Item, error) {
 			JOIN tags t ON t.id=it.tag_id AND t.name=?`)
 		args = append(args, f.Tag)
 	}
-	sb.WriteString(` WHERE 1=1`)
+	sb.WriteString(` WHERE i.archived=?`)
+	args = append(args, f.Archived)
 	if f.FeedID > 0 {
 		sb.WriteString(` AND i.feed_id=?`)
 		args = append(args, f.FeedID)
+	}
+	if f.ColumnID > 0 {
+		sb.WriteString(` AND (i.feed_id IN (SELECT id FROM feeds WHERE column_id=?)
+			OR i.id IN (SELECT item_id FROM column_items WHERE column_id=?))`)
+		args = append(args, f.ColumnID, f.ColumnID)
 	}
 	if f.Status != "" {
 		sb.WriteString(` AND i.status=?`)
@@ -200,7 +213,7 @@ func (s *Store) searchItems(f ItemFilter) ([]model.Item, error) {
 		var it model.Item
 		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link,
 			&it.Author, &it.Summary, &it.Keywords, &it.Source,
-			&it.PublishedAt, &it.Status, &it.Read, &it.CreatedAt); err != nil {
+			&it.PublishedAt, &it.Status, &it.Read, &it.Archived, &it.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, it)
@@ -229,6 +242,7 @@ func (s *Store) GetItem(id int64) (*model.Item, error) {
 	}
 	it := m.item
 	it.Tags = append([]string{}, m.tags...)
+	it.ColumnIDs = append([]int64{}, m.favCols...)
 	s.index.mu.RUnlock()
 
 	if content, hit := s.content.Get(id); hit {
@@ -283,14 +297,14 @@ func (s *Store) ResetEnrichment(all bool) (int, error) {
 	return int(n), nil
 }
 
-// PendingItems 取待标注文章(含正文,管线需要;批量作业不走缓存)。
+// PendingItems 取待标注文章(含正文,管线需要;批量作业不走缓存)。已归档的不参与标注。
 func (s *Store) PendingItems(limit int) ([]model.Item, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	rows, err := s.db.Query(`SELECT id,feed_id,guid,title,link,author,content,
-		summary,keywords,source,published_at,status,read,created_at
-		FROM items WHERE status=? ORDER BY id LIMIT ?`, model.StatusPending, limit)
+		summary,keywords,source,published_at,status,read,archived,created_at
+		FROM items WHERE status=? AND archived=0 ORDER BY id LIMIT ?`, model.StatusPending, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -300,12 +314,44 @@ func (s *Store) PendingItems(limit int) ([]model.Item, error) {
 		var it model.Item
 		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link,
 			&it.Author, &it.Content, &it.Summary, &it.Keywords, &it.Source,
-			&it.PublishedAt, &it.Status, &it.Read, &it.CreatedAt); err != nil {
+			&it.PublishedAt, &it.Status, &it.Read, &it.Archived, &it.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, it)
 	}
 	return out, rows.Err()
+}
+
+// SetArchived 归档/取消归档单篇文章。
+func (s *Store) SetArchived(id int64, archived bool) error {
+	if _, err := s.db.Exec(`UPDATE items SET archived=? WHERE id=?`, archived, id); err != nil {
+		return err
+	}
+	s.index.update(id, func(m *itemMeta) { m.item.Archived = archived })
+	return nil
+}
+
+// ArchiveFeedItems 批量归档一个 feed 的文章;onlyRead 为 true 时只归档已读。
+// 返回归档条数。
+func (s *Store) ArchiveFeedItems(feedID int64, onlyRead bool) (int, error) {
+	q := `UPDATE items SET archived=1 WHERE feed_id=? AND archived=0`
+	args := []any{feedID}
+	if onlyRead {
+		q += ` AND read=1`
+	}
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	s.index.mu.Lock()
+	for _, m := range s.index.items {
+		if m.item.FeedID == feedID && !m.item.Archived && (!onlyRead || m.item.Read) {
+			m.item.Archived = true
+		}
+	}
+	s.index.mu.Unlock()
+	return int(n), nil
 }
 
 func (s *Store) MarkRead(id int64, read bool) error {

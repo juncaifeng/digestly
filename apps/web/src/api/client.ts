@@ -5,10 +5,13 @@ const BASE = import.meta.env.DEV ? "" : `http://127.0.0.1:${(window as any).__DI
 export interface Feed {
   id: number
   title: string
+  column_id: number | null
   url: string
   collector: string
   config: string
   interval_min: number
+  max_items: number
+  unread_count: number
 }
 
 export type ItemStatus = "pending" | "processed" | "failed"
@@ -27,7 +30,19 @@ export interface Item {
   published_at: string | null
   status: ItemStatus
   read: boolean
+  archived: boolean
   tags?: string[]
+  column_ids?: number[]
+}
+
+export interface Column {
+  id: number
+  name: string
+  sort: number
+  template_id: number
+  feed_count: number
+  item_count: number
+  created_at: string
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -45,6 +60,11 @@ export const api = {
   addFeed: (f: { title: string; url: string; collector?: string }) =>
     req<Feed>("/feeds", { method: "POST", body: JSON.stringify(f) }),
   deleteFeed: (id: number) => req<void>(`/feeds/${id}`, { method: "DELETE" }),
+  updateFeed: (id: number, patch: { max_items?: number }) =>
+    req<{ max_items: number }>(`/feeds/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   refreshFeed: (id: number) => req<void>(`/feeds/${id}/refresh`, { method: "POST" }),
   listItems: (params: Record<string, string | number | undefined> = {}) => {
     const qs = new URLSearchParams()
@@ -55,6 +75,10 @@ export const api = {
   getItem: (id: number) => req<Item>(`/items/${id}`),
   markRead: (id: number, read: boolean) =>
     req<void>(`/items/${id}/read`, { method: "POST", body: JSON.stringify({ read }) }),
+  archiveItem: (id: number, archived: boolean) =>
+    req<void>(`/items/${id}/archive`, { method: "POST", body: JSON.stringify({ archived }) }),
+  archiveFeed: (id: number, scope: "read" | "all") =>
+    req<{ archived: number }>(`/feeds/${id}/archive`, { method: "POST", body: JSON.stringify({ scope }) }),
   addTag: (id: number, tag: string) =>
     req<void>(`/items/${id}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
   listCollectors: () => req<string[]>("/collectors"),
@@ -107,6 +131,149 @@ export interface MountedSource {
   feeds: SourceFeed[]
   parse_err?: string
   fetched_at: string
+}
+
+export const columnApi = {
+  list: () => req<Column[]>("/columns"),
+  create: (name: string) =>
+    req<{ id: number; name: string }>("/columns", { method: "POST", body: JSON.stringify({ name }) }),
+  update: (id: number, patch: { name?: string; template_id?: number }) =>
+    req<void>(`/columns/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  rename: (id: number, name: string) =>
+    req<void>(`/columns/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  remove: (id: number) => req<void>(`/columns/${id}`, { method: "DELETE" }),
+  setFeedColumn: (feedId: number, columnId: number | null) =>
+    req<void>(`/feeds/${feedId}/column`, { method: "POST", body: JSON.stringify({ column_id: columnId }) }),
+  favorite: (itemId: number, columnId: number) =>
+    req<void>(`/items/${itemId}/columns`, { method: "POST", body: JSON.stringify({ column_id: columnId }) }),
+  unfavorite: (itemId: number, columnId: number) =>
+    req<void>(`/items/${itemId}/columns/${columnId}`, { method: "DELETE" }),
+}
+
+export interface LLMConfig {
+  id: number
+  name: string
+  base_url: string
+  api_key: string // 列表接口返回掩码;提交时空串 = 不修改
+  model: string
+  temperature: number
+  max_tokens: number
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ArticleTemplate {
+  id: number
+  name: string
+  prompt: string
+  built_in: boolean
+  created_at: string
+}
+
+export interface Article {
+  id: number
+  creation_id: number
+  template_id: number
+  title: string
+  content: string
+  item_ids?: number[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CreationSource {
+  kind: "column" | "feed"
+  ref_id: number
+}
+
+export interface Creation {
+  id: number
+  name: string
+  group_name: string
+  template_id: number
+  sources?: CreationSource[]
+  created_at: string
+}
+
+export interface ModelPreset {
+  id: string
+  label: string
+  context: string
+  max_output: string
+  thinking: string
+  vision: boolean
+  pricing: string
+  concurrency: number
+}
+
+export interface ProviderPreset {
+  name: string
+  base_url: string
+  docs: string
+  note: string
+  models: ModelPreset[]
+}
+
+export const llmApi = {
+  presets: () => req<ProviderPreset[]>("/llm/presets"),
+  list: () => req<LLMConfig[]>("/llm/configs"),
+  create: (c: Partial<LLMConfig>) =>
+    req<LLMConfig>("/llm/configs", { method: "POST", body: JSON.stringify(c) }),
+  update: (id: number, c: Partial<LLMConfig>) =>
+    req<void>(`/llm/configs/${id}`, { method: "PATCH", body: JSON.stringify(c) }),
+  remove: (id: number) => req<void>(`/llm/configs/${id}`, { method: "DELETE" }),
+  setDefault: (id: number) =>
+    req<void>(`/llm/configs/${id}/default`, { method: "POST" }),
+  test: (body: { id?: number; base_url?: string; api_key?: string; model?: string }) =>
+    req<{ reply: string }>("/llm/test", { method: "POST", body: JSON.stringify(body) }),
+}
+
+export const templateApi = {
+  list: () => req<ArticleTemplate[]>("/templates"),
+  create: (t: { name: string; prompt: string }) =>
+    req<ArticleTemplate>("/templates", { method: "POST", body: JSON.stringify(t) }),
+  update: (id: number, t: { name: string; prompt: string }) =>
+    req<void>(`/templates/${id}`, { method: "PATCH", body: JSON.stringify(t) }),
+  remove: (id: number) => req<void>(`/templates/${id}`, { method: "DELETE" }),
+}
+
+export const articleApi = {
+  list: (creation_id: number) => req<Article[]>(`/articles?creation_id=${creation_id}`),
+  get: (id: number) => req<Article>(`/articles/${id}`),
+  update: (id: number, a: { title: string; content: string }) =>
+    req<void>(`/articles/${id}`, { method: "PATCH", body: JSON.stringify(a) }),
+  remove: (id: number) => req<void>(`/articles/${id}`, { method: "DELETE" }),
+}
+
+export interface CreationPlan {
+  creation: Creation
+  template: ArticleTemplate
+  feed_ids: number[]
+  force: boolean
+  item_ids: number[]
+  items: Item[]
+  history_titles: string[]
+  prompt: string
+}
+
+export const creationApi = {
+  list: () => req<Creation[]>("/creations"),
+  create: (c: { name: string; group_name?: string }) =>
+    req<Creation>("/creations", { method: "POST", body: JSON.stringify(c) }),
+  update: (id: number, c: Partial<Creation>) =>
+    req<void>(`/creations/${id}`, { method: "PATCH", body: JSON.stringify(c) }),
+  remove: (id: number) => req<void>(`/creations/${id}`, { method: "DELETE" }),
+  generate: (id: number, template_id?: number, force?: boolean) =>
+    req<Article>(`/creations/${id}/generate`, {
+      method: "POST",
+      body: JSON.stringify({ template_id, force }),
+    }),
+  plan: (id: number, template_id?: number, force?: boolean) =>
+    req<CreationPlan>(`/creations/${id}/plan`, {
+      method: "POST",
+      body: JSON.stringify({ template_id, force }),
+    }),
 }
 
 export const marketApi = {

@@ -1,0 +1,44 @@
+# LLM 供应商预设 schema:
+#   name:      供应商名(唯一,用户目录同名文件会覆盖内置)
+#   base_url:  OpenAI 兼容接口地址(程序自动拼 /chat/completions)
+#   docs:      文档地址
+#   note:      备注
+#   models:    可选模型列表
+#     id:         调用用的模型名
+#     label:      展示名(版本号等)
+#     context:    上下文长度
+#     max_output: 最大输出长度
+#     thinking:   思考模式说明
+#     vision:     是否支持图像理解
+#     pricing:    价格说明(每百万 tokens,多行文本)
+#     concurrency: 并发限制
+
+name: DeepSeek
+base_url: https://api.deepseek.com
+docs: https://api-docs.deepseek.com
+note: 高峰时段为北京时间工作日 9:00-12:00 / 14:00-18:00,其余时段半价
+models:
+  - id: deepseek-flash
+    label: DeepSeek-V4.1-Flash-1017
+    context: 1M
+    max_output: 384K
+    thinking: 支持非思考与思考模式(默认思考)
+    vision: true
+    concurrency: 2500
+    pricing: |
+      输入(缓存命中): 空闲 ¥0.02 / 高峰 ¥0.04
+      输入(缓存未命中): 空闲 ¥1 / 高峰 ¥2
+      输出: 空闲 ¥4 / 高峰 ¥8
+      (每百万 tokens;旧模型名 deepseek-v4-flash 仍可用,按 Flash 计费)
+  - id: deepseek-v4-pro
+    label: DeepSeek-V4-Pro-0813
+    context: 1M
+    max_output: 384K
+    thinking: 支持非思考与思考模式(默认思考)
+    vision: false
+    concurrency: 500
+    pricing: |
+      输入(缓存命中): 空闲 ¥0.15 / 高峰 ¥0.30
+      输入(缓存未命中): 空闲 ¥4.5 / 高峰 ¥9.0
+      输出: 空闲 ¥13.5 / 高峰 ¥27.0
+      (每百万 tokens)

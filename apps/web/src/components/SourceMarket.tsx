@@ -16,6 +16,8 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
   const [activeTag, setActiveTag] = useState<string | undefined>()
+  const [activeSource, setActiveSource] = useState<number | undefined>()
+  // 已订阅状态: 本地标记 + 已有订阅源 URL(刷新后依然正确显示)
   const [subscribed, setSubscribed] = useState<Record<string, boolean>>({})
 
   const load = () => {
@@ -23,6 +25,12 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
       .listSources()
       .then((r) => setSources(r.sources))
       .catch((e) => setError(`市场源加载失败: ${e.message}`))
+    api
+      .listFeeds()
+      .then((feeds) =>
+        setSubscribed(Object.fromEntries(feeds.map((f) => [f.url, true])))
+      )
+      .catch(() => {})
   }
   useEffect(() => { void load() }, [])
 
@@ -46,17 +54,24 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
   const subscribe = async (f: SourceFeed) => {
     try {
       await api.addFeed({ title: f.title, url: f.feed_url, collector: "rss" })
-      setSubscribed((m) => ({ ...m, [f.feed_url]: true }))
       onSubscribed()
     } catch (e) {
-      setError(`订阅失败: ${(e as Error).message}`)
+      // feeds.url 有 UNIQUE 约束: 重复订阅直接视为已订阅,不报错
+      if (!(e as Error).message.includes("UNIQUE")) {
+        setError(`订阅失败: ${(e as Error).message}`)
+        return
+      }
     }
+    setSubscribed((m) => ({ ...m, [f.feed_url]: true }))
   }
 
-  const feeds = sources.flatMap((s) => s.feeds.map((f) => ({ ...f, source_title: s.title })))
+  const feeds = sources.flatMap((s) =>
+    s.feeds.map((f) => ({ ...f, tags: f.tags ?? [], source_id: s.id, source_title: s.title }))
+  )
   const allTags = [...new Set(feeds.flatMap((f) => f.tags))].sort()
   const filtered = feeds.filter(
     (f) =>
+      (!activeSource || f.source_id === activeSource) &&
       (!activeTag || f.tags.includes(activeTag)) &&
       (!query ||
         f.title.toLowerCase().includes(query.toLowerCase()) ||
@@ -100,20 +115,37 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
       {sources.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap text-xs">
           {sources.map((s) => (
-            <div key={s.id} className="flex items-center gap-1.5 border rounded-md px-2 py-1">
+            <div
+              key={s.id}
+              className={"flex items-center gap-1.5 border rounded-md px-2 py-1 cursor-pointer " +
+                (activeSource === s.id ? "bg-secondary ring-1 ring-ring" : "")}
+              title="点击只看这个市场源,再点取消"
+              onClick={() => setActiveSource(activeSource === s.id ? undefined : s.id)}
+            >
               <span className="font-medium">{s.title || s.url}</span>
               <Badge variant="secondary">{s.feeds.length} 源</Badge>
-              {s.parse_err && <Badge variant="destructive">解析失败</Badge>}
+              {s.parse_err && (
+                <Badge variant="destructive" title={s.parse_err}>
+                  {s.feeds.length > 0 ? "刷新失败(仍在用上次清单)" : "解析失败"}
+                </Badge>
+              )}
               <Button variant="ghost" size="icon" className="size-5"
-                title="刷新该市场源" onClick={() => marketApi.refreshSource(s.id).then(load)}>
+                title="刷新该市场源"
+                onClick={(e) => { e.stopPropagation(); marketApi.refreshSource(s.id).then(load) }}>
                 <RefreshCw className="size-3" />
               </Button>
               <Button variant="ghost" size="icon" className="size-5"
-                title="卸载" onClick={() => marketApi.removeSource(s.id).then(load)}>
+                title="卸载"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (activeSource === s.id) setActiveSource(undefined)
+                  marketApi.removeSource(s.id).then(load)
+                }}>
                 <Trash2 className="size-3" />
               </Button>
             </div>
           ))}
+          {allTags.length > 0 && <span className="text-muted-foreground mx-1">|</span>}
           {allTags.map((t) => (
             <Button key={t} variant={activeTag === t ? "secondary" : "ghost"} size="sm"
               onClick={() => setActiveTag(activeTag === t ? undefined : t)}>
@@ -140,6 +172,7 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
                 ))}
               </div>
               <Button size="sm" variant={subscribed[f.feed_url] ? "outline" : "default"}
+                disabled={!!subscribed[f.feed_url]}
                 onClick={() => subscribe(f)}>
                 {subscribed[f.feed_url] ? <><Check className="size-3.5" /> 已订阅</> :
                   <><Download className="size-3.5" /> 订阅</>}

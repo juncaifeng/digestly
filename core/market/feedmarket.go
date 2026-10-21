@@ -2,6 +2,7 @@ package market
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -21,46 +22,100 @@ type FeedMarket struct {
 	// FeedTTL 目录过期时长。
 	FeedTTL time.Duration
 
-	mu    sync.Mutex
-	cache map[string]*SourceFeeds
+	// HTTP 用于解析清单;带短超时,避免远端挂起把后台刷新 goroutine 吊住
+	HTTP *http.Client
+
+	mu         sync.Mutex
+	cache      map[string]*SourceFeeds
+	refreshing map[string]time.Time // 正在后台刷新的地址 → 开始时刻(超时即视为失效)
 }
 
+// refreshBudget 后台刷新允许占用 refreshing 标记的最长时间;
+// 超过即视为失效,后续 Get 可重新排队刷新。
+// 变量便于测试缩短。
+var refreshBudget = 30 * time.Second
+
 func NewFeedMarket() *FeedMarket {
-	return &FeedMarket{FeedTTL: time.Hour, cache: map[string]*SourceFeeds{}}
+	return &FeedMarket{
+		FeedTTL:    time.Hour,
+		HTTP:       &http.Client{Timeout: 15 * time.Second},
+		cache:      map[string]*SourceFeeds{},
+		refreshing: map[string]time.Time{},
+	}
 }
 
 // Sync 解析一个市场源并缓存目录(挂载/手动刷新时调用)。
+// 解析失败时保留旧目录(离线降级);失败不更新 FetchedAt,
+// 否则目录刚失败就被当成"新鲜",过期重试/红标会长期残留。
 func (m *FeedMarket) Sync(ctx context.Context, sourceURL, title string) *SourceFeeds {
-	feeds, err := ParseFeeds(ctx, nil, sourceURL)
+	feeds, err := ParseFeeds(ctx, m.HTTP, sourceURL)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old, hadOld := m.cache[sourceURL]
 	sf := &SourceFeeds{SourceURL: sourceURL, Title: title, FetchedAt: time.Now()}
 	if err != nil {
 		sf.Err = err.Error()
+		if hadOld {
+			// 离线降级: 继续用上次成功的目录,时间戳也算上次成功的
+			sf.Feeds = old.Feeds
+			sf.FetchedAt = old.FetchedAt
+		} else {
+			// 从未成功过: 留着零值时间戳,让下次 Get 继续重试,
+			// 而不是把失败当下"新鲜"从而永久卡在空目录
+			sf.FetchedAt = time.Time{}
+		}
 	} else {
-		sf.Feeds = feeds
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// 解析失败时保留旧目录(离线降级),只记录失败原因
-	if old, ok := m.cache[sourceURL]; ok && err != nil {
-		sf.Feeds = old.Feeds
+		sf.Feeds = feeds // 成功即清空旧的失败原因
 	}
 	m.cache[sourceURL] = sf
 	return sf
 }
 
 // Get 取缓存目录;过期时后台刷新,当前请求返回旧目录(不阻塞)。
+// 同一地址的后台刷新用 refreshing 去重,避免并发打爆远端。
 func (m *FeedMarket) Get(ctx context.Context, sourceURL, title string) *SourceFeeds {
 	m.mu.Lock()
 	sf, ok := m.cache[sourceURL]
 	stale := !ok || time.Since(sf.FetchedAt) > m.FeedTTL
+	kick := false
+	if stale {
+		busy := false
+		if started, ok := m.refreshing[sourceURL]; ok {
+			// 上一轮卡太久(远端挂起)就视为失效,允许重新排队,否则永远不再刷新
+			busy = time.Since(started) <= refreshBudget
+		}
+		if !busy {
+			m.refreshing[sourceURL] = time.Now()
+			kick = true
+		}
+	}
 	m.mu.Unlock()
 
 	if !ok {
-		// 首次: 同步解析一次(挂载后的首次列表要能看到内容)
+		// 首次: 同步解析一次(挂载后的首次列表要能看到内容)。
+		// 之前这里在 kick 时就把 refreshing 置位,而同步分支不走后台 goroutine
+		// 的 defer 清理,标记会永久残留 → 后续所有后台刷新被跳过。
+		if kick {
+			m.mu.Lock()
+			delete(m.refreshing, sourceURL)
+			m.mu.Unlock()
+		}
 		return m.Sync(ctx, sourceURL, title)
 	}
-	if stale {
-		go m.Sync(context.Background(), sourceURL, title)
+	if kick {
+		go func() {
+			defer func() {
+				m.mu.Lock()
+				delete(m.refreshing, sourceURL)
+				m.mu.Unlock()
+			}()
+			// 后台刷新带独立超时: 远端挂起时也必定返回,
+			// 否则 refreshing 会被长期占住、后续刷新全部被跳过
+			ctx, cancel := context.WithTimeout(context.Background(), refreshBudget)
+			defer cancel()
+			m.Sync(ctx, sourceURL, title)
+		}()
 	}
 	return sf
 }
@@ -69,5 +124,6 @@ func (m *FeedMarket) Get(ctx context.Context, sourceURL, title string) *SourceFe
 func (m *FeedMarket) Evict(sourceURL string) {
 	m.mu.Lock()
 	delete(m.cache, sourceURL)
+	delete(m.refreshing, sourceURL)
 	m.mu.Unlock()
 }
