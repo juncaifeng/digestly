@@ -113,6 +113,15 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	// 同样探测补 articles.user_message(对话式生成的用户指示)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('articles') WHERE name='user_message'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.Exec(`ALTER TABLE articles ADD COLUMN user_message TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
 	if err := s.migrateArticlesToCreations(); err != nil {
 		return err
 	}

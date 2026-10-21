@@ -139,8 +139,9 @@ func BuildPlan(st *store.Store, creationID, templateID int64, force bool) (*Plan
 // Generate 基于创作单元配置的素材源(专栏 / 单个订阅源)生成一篇文章。
 // templateID <= 0 时用创作关联的默认模板。
 // force = true 时不限未读,直接取最新素材(用于未读耗尽后强制生成)。
+// instruction 为本轮用户指示(可空),注入 prompt 并随文章保存为对话记录。
 // 成功落库后素材标记为已读(防重复消费);生成失败不标记,素材可再次消费。
-func Generate(ctx context.Context, st *store.Store, creationID, templateID int64, force bool) (*model.Article, error) {
+func Generate(ctx context.Context, st *store.Store, creationID, templateID int64, force bool, instruction string) (*model.Article, error) {
 	plan, err := BuildPlan(st, creationID, templateID, force)
 	if err != nil {
 		return nil, err
@@ -152,11 +153,15 @@ func Generate(ctx context.Context, st *store.Store, creationID, templateID int64
 		}
 		return nil, err
 	}
+	prompt := plan.Prompt
+	if instruction = strings.TrimSpace(instruction); instruction != "" {
+		prompt += "\n\n用户本次指示(优先遵循):\n" + instruction
+	}
 	var content string
 	if cfg.Kind == "agent" {
-		content, err = llm.RunAgent(ctx, cfg.Command, plan.Prompt)
+		content, err = llm.RunAgent(ctx, cfg.Command, prompt)
 	} else {
-		content, err = llm.Chat(ctx, cfg, "你是一名专业的内容创作者。", plan.Prompt)
+		content, err = llm.Chat(ctx, cfg, "你是一名专业的内容创作者。", prompt)
 	}
 	if err != nil {
 		return nil, err
@@ -173,7 +178,7 @@ func Generate(ctx context.Context, st *store.Store, creationID, templateID int64
 		title = plan.Creation.Name + " " + time.Now().Format("2006-01-02 15:04")
 	}
 
-	a := &model.Article{CreationID: creationID, TemplateID: plan.Template.ID, Title: title, Content: body, ItemIDs: plan.ItemIDs}
+	a := &model.Article{CreationID: creationID, TemplateID: plan.Template.ID, Title: title, Content: body, UserMessage: instruction, ItemIDs: plan.ItemIDs}
 	if err := st.AddArticle(a); err != nil {
 		return nil, err
 	}

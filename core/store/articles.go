@@ -80,8 +80,8 @@ func (s *Store) AddArticle(a *model.Article) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`INSERT INTO articles(creation_id,template_id,title,content,item_ids) VALUES(?,?,?,?,?)`,
-		a.CreationID, a.TemplateID, a.Title, a.Content, string(ids))
+	res, err := s.db.Exec(`INSERT INTO articles(creation_id,template_id,title,content,user_message,item_ids) VALUES(?,?,?,?,?,?)`,
+		a.CreationID, a.TemplateID, a.Title, a.Content, a.UserMessage, string(ids))
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (s *Store) AddArticle(a *model.Article) error {
 
 // ListArticles 列出一个创作单元的生成历史(新的在前,不含正文)。
 func (s *Store) ListArticles(creationID int64) ([]model.Article, error) {
-	rows, err := s.db.Query(`SELECT id,creation_id,template_id,title,item_ids,created_at,updated_at
+	rows, err := s.db.Query(`SELECT id,creation_id,template_id,title,user_message,item_ids,created_at,updated_at
 		FROM articles WHERE creation_id=? ORDER BY id DESC`, creationID)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (s *Store) ListArticles(creationID int64) ([]model.Article, error) {
 	for rows.Next() {
 		var a model.Article
 		var ids string
-		if err := rows.Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &ids, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &a.UserMessage, &ids, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(ids), &a.ItemIDs)
@@ -114,9 +114,9 @@ func (s *Store) ListArticles(creationID int64) ([]model.Article, error) {
 func (s *Store) GetArticle(id int64) (*model.Article, error) {
 	var a model.Article
 	var ids string
-	err := s.db.QueryRow(`SELECT id,creation_id,template_id,title,content,item_ids,created_at,updated_at
+	err := s.db.QueryRow(`SELECT id,creation_id,template_id,title,content,user_message,item_ids,created_at,updated_at
 		FROM articles WHERE id=?`, id).
-		Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &a.Content, &ids, &a.CreatedAt, &a.UpdatedAt)
+		Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &a.Content, &a.UserMessage, &ids, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

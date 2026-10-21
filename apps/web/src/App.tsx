@@ -205,9 +205,6 @@ export default function App() {
             <Settings className="size-4" /> 设置
           </Button>
         </div>
-        {view === "creation" && (
-          <div id="creation-tree-slot" className="flex-1 flex flex-col gap-2 overflow-hidden" />
-        )}
         {view === "articles" && (<>
         <div className="flex flex-col gap-2">
           <Input

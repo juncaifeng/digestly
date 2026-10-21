@@ -82,16 +82,18 @@ func registerCreationRoutes(r chi.Router, st *store.Store) {
 		}
 		writeJSON(w, 200, p)
 	})
-	// 生成: 展开素材源 -> 取最新未读 -> LLM -> 落库 -> 素材标记已读
+	// 生成: 展开素材源 -> 取最新未读 -> LLM/Agent -> 落库 -> 素材标记已读
 	// template_id 可省,缺省用创作关联的默认模板; force = 不限未读,取最新素材
+	// instruction 本轮用户指示(可空),注入 prompt 并随文章保存
 	r.Post("/creations/{id}/generate", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {
-			TemplateID int64 `json:"template_id"`
-			Force      bool  `json:"force"`
+			TemplateID  int64  `json:"template_id"`
+			Force       bool   `json:"force"`
+			Instruction string `json:"instruction"`
 		}
 		_ = json.NewDecoder(req.Body).Decode(&body)
-		a, err := compose.Generate(req.Context(), st, id, body.TemplateID, body.Force)
+		a, err := compose.Generate(req.Context(), st, id, body.TemplateID, body.Force, body.Instruction)
 		if err != nil {
 			writeErr(w, 422, err)
 			return

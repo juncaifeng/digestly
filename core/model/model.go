@@ -121,13 +121,15 @@ type Creation struct {
 }
 
 // Article 一篇生成的创作文章。CreationID 指向创作单元;ItemIDs 记录消耗的素材文章 id。
+// UserMessage 本轮对话中用户随生成输入的指示(可空);与文章一起构成会话记录。
 type Article struct {
-	ID         int64     `json:"id"`
-	CreationID int64     `json:"creation_id"`
-	TemplateID int64     `json:"template_id"`
-	Title      string    `json:"title"`
-	Content    string    `json:"content"`
-	ItemIDs    []int64   `json:"item_ids,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	CreationID  int64     `json:"creation_id"`
+	TemplateID  int64     `json:"template_id"`
+	Title       string    `json:"title"`
+	Content     string    `json:"content"`
+	UserMessage string    `json:"user_message"` // 本轮用户指示(对话气泡用)
+	ItemIDs     []int64   `json:"item_ids,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

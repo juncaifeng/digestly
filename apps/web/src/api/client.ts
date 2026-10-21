@@ -179,6 +179,7 @@ export interface Article {
   template_id: number
   title: string
   content: string
+  user_message?: string // 本轮用户指示(对话气泡)
   item_ids?: number[]
   created_at: string
   updated_at: string
@@ -274,10 +275,10 @@ export const creationApi = {
   update: (id: number, c: Partial<Creation>) =>
     req<void>(`/creations/${id}`, { method: "PATCH", body: JSON.stringify(c) }),
   remove: (id: number) => req<void>(`/creations/${id}`, { method: "DELETE" }),
-  generate: (id: number, template_id?: number, force?: boolean) =>
+  generate: (id: number, template_id?: number, force?: boolean, instruction?: string) =>
     req<Article>(`/creations/${id}/generate`, {
       method: "POST",
-      body: JSON.stringify({ template_id, force }),
+      body: JSON.stringify({ template_id, force, instruction }),
     }),
   plan: (id: number, template_id?: number, force?: boolean) =>
     req<CreationPlan>(`/creations/${id}/plan`, {
