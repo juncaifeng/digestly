@@ -60,7 +60,6 @@ func main() {
 		sources  = flag.String("sources", "", "素材源,逗号分隔: column:1,feed:5(creation-add/update)")
 		force    = flag.Bool("force", false, "plan/generate: 不限未读,取最新素材")
 		idsOnly  = flag.Bool("ids-only", false, "plan: 只输出素材 id 列表(分页细读用)")
-		instruct = flag.String("instruction", "", "generate: 本轮用户指示(注入 prompt 并随文章保存)")
 	)
 	flag.Parse()
 
@@ -98,7 +97,7 @@ func main() {
 	case "plan":
 		cmdPlan(st, *creation, *template, *force, *idsOnly, *format, *limit, *offset, *full)
 	case "generate":
-		cmdGenerate(st, *creation, *template, *force, *instruct, *format)
+		cmdGenerate(st, *creation, *template, *force, *format)
 	case "read", "unread":
 		if *id <= 0 {
 			fatal("%s 需要 -id", *cmd)
@@ -567,13 +566,13 @@ func cmdPlan(st *store.Store, creationS string, templateID int64, force, idsOnly
 	fmt.Printf("\n## 完整 prompt(%d 字符)\n\n%s\n", len(p.Prompt), p.Prompt)
 }
 
-// cmdGenerate 调 LLM/Agent 生成一篇文章并落库(素材标记已读)。有真实副作用。
-func cmdGenerate(st *store.Store, creationS string, templateID int64, force bool, instruction, format string) {
+// cmdGenerate 调 LLM 生成一篇文章并落库(素材标记已读)。有真实副作用。
+func cmdGenerate(st *store.Store, creationS string, templateID int64, force bool, format string) {
 	creationID, err := resolveCreation(st, creationS)
 	if err != nil {
 		fatal("%v", err)
 	}
-	a, err := compose.Generate(context.Background(), st, creationID, templateID, force, instruction)
+	a, err := compose.Generate(context.Background(), st, creationID, templateID, force)
 	if err != nil {
 		fatal("生成失败: %v", err)
 	}

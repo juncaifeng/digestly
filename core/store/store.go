@@ -9,7 +9,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -21,7 +20,6 @@ type Store struct {
 	db      *sql.DB
 	index   *itemIndex
 	content *contentCache
-	Path    string // 数据库文件路径(供 compose 拼 digestly-cli -data 用)
 }
 
 // Open 打开(必要时创建)数据库并执行迁移,然后预热 L1 索引。
@@ -30,7 +28,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, index: newItemIndex(), content: newContentCache(DefaultContentCacheBytes), Path: path}
+	s := &Store{db: db, index: newItemIndex(), content: newContentCache(DefaultContentCacheBytes)}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -52,7 +50,7 @@ func OpenReadOnly(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, index: newItemIndex(), content: newContentCache(DefaultContentCacheBytes), Path: path}
+	s := &Store{db: db, index: newItemIndex(), content: newContentCache(DefaultContentCacheBytes)}
 	if err := s.warmIndex(); err != nil {
 		db.Close()
 		return nil, err
@@ -103,80 +101,10 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	// 同样探测补 llm_configs.kind / command(生成后端: 直连 API 或外部 Agent 进程)
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('llm_configs') WHERE name='kind'`).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := s.db.Exec(`ALTER TABLE llm_configs ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'`); err != nil {
-			return err
-		}
-		if _, err := s.db.Exec(`ALTER TABLE llm_configs ADD COLUMN command TEXT NOT NULL DEFAULT ''`); err != nil {
-			return err
-		}
-	}
-	// 同样探测补 articles.user_message(对话式生成的用户指示)
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('articles') WHERE name='user_message'`).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := s.db.Exec(`ALTER TABLE articles ADD COLUMN user_message TEXT NOT NULL DEFAULT ''`); err != nil {
-			return err
-		}
-	}
 	if err := s.migrateArticlesToCreations(); err != nil {
 		return err
 	}
-	if err := s.backfillMessages(); err != nil {
-		return err
-	}
 	return s.seedBuiltinTemplates()
-}
-
-// backfillMessages 首次启用会话表时,把历史产出回放为对话轮次
-// (user_message 为用户气泡,文章本体为 assistant 气泡并挂文件)。已回填过则跳过。
-func (s *Store) backfillMessages() error {
-	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM creation_messages`).Scan(&n); err != nil {
-		return err
-	}
-	if n > 0 {
-		return nil
-	}
-	rows, err := s.db.Query(`SELECT id,creation_id,title,user_message,created_at FROM articles ORDER BY id`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	type row struct {
-		id, cid         int64
-		title, userMsg  string
-		created         time.Time
-	}
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.cid, &r.title, &r.userMsg, &r.created); err != nil {
-			return err
-		}
-		rs = append(rs, r)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, r := range rs {
-		if r.userMsg != "" {
-			if _, err := s.db.Exec(`INSERT INTO creation_messages(creation_id,role,content,article_id,created_at) VALUES(?,?,?,0,?)`,
-				r.cid, "user", r.userMsg, r.created); err != nil {
-				return err
-			}
-		}
-		if _, err := s.db.Exec(`INSERT INTO creation_messages(creation_id,role,content,article_id,created_at) VALUES(?,?,?,?,?)`,
-			r.cid, "assistant", "生成文章: "+r.title, r.id, r.created); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // migrateArticlesToCreations articles 从「属于专栏」升级为「属于创作单元」。

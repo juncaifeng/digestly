@@ -1,5 +1,0 @@
-# 外部 Agent 运行时预设(schema 见 dsh.yml 头注释)
-name: Claude Code
-command: claude -p
-docs: https://docs.anthropic.com/en/docs/claude-code
-note: prompt 走 stdin,stdout 为生成文本;需已安装并登录 claude CLI

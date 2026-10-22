@@ -80,8 +80,8 @@ func (s *Store) AddArticle(a *model.Article) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`INSERT INTO articles(creation_id,template_id,title,content,user_message,item_ids) VALUES(?,?,?,?,?,?)`,
-		a.CreationID, a.TemplateID, a.Title, a.Content, a.UserMessage, string(ids))
+	res, err := s.db.Exec(`INSERT INTO articles(creation_id,template_id,title,content,item_ids) VALUES(?,?,?,?,?)`,
+		a.CreationID, a.TemplateID, a.Title, a.Content, string(ids))
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (s *Store) AddArticle(a *model.Article) error {
 
 // ListArticles 列出一个创作单元的生成历史(新的在前,不含正文)。
 func (s *Store) ListArticles(creationID int64) ([]model.Article, error) {
-	rows, err := s.db.Query(`SELECT id,creation_id,template_id,title,user_message,item_ids,created_at,updated_at
+	rows, err := s.db.Query(`SELECT id,creation_id,template_id,title,item_ids,created_at,updated_at
 		FROM articles WHERE creation_id=? ORDER BY id DESC`, creationID)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (s *Store) ListArticles(creationID int64) ([]model.Article, error) {
 	for rows.Next() {
 		var a model.Article
 		var ids string
-		if err := rows.Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &a.UserMessage, &ids, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &ids, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(ids), &a.ItemIDs)
@@ -114,9 +114,9 @@ func (s *Store) ListArticles(creationID int64) ([]model.Article, error) {
 func (s *Store) GetArticle(id int64) (*model.Article, error) {
 	var a model.Article
 	var ids string
-	err := s.db.QueryRow(`SELECT id,creation_id,template_id,title,content,user_message,item_ids,created_at,updated_at
+	err := s.db.QueryRow(`SELECT id,creation_id,template_id,title,content,item_ids,created_at,updated_at
 		FROM articles WHERE id=?`, id).
-		Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &a.Content, &a.UserMessage, &ids, &a.CreatedAt, &a.UpdatedAt)
+		Scan(&a.ID, &a.CreationID, &a.TemplateID, &a.Title, &a.Content, &ids, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -141,34 +141,4 @@ func (s *Store) UpdateArticle(a *model.Article) error {
 func (s *Store) DeleteArticle(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM articles WHERE id=?`, id)
 	return err
-}
-
-// AddMessage 追加一条会话消息(对话线程持久化)。
-func (s *Store) AddMessage(m *model.CreationMessage) error {
-	res, err := s.db.Exec(`INSERT INTO creation_messages(creation_id,role,content,article_id) VALUES(?,?,?,?)`,
-		m.CreationID, m.Role, m.Content, m.ArticleID)
-	if err != nil {
-		return err
-	}
-	m.ID, _ = res.LastInsertId()
-	return nil
-}
-
-// ListMessages 列出一个创作项目的会话线程(正序)。
-func (s *Store) ListMessages(creationID int64) ([]model.CreationMessage, error) {
-	rows, err := s.db.Query(`SELECT id,creation_id,role,content,article_id,created_at
-		FROM creation_messages WHERE creation_id=? ORDER BY id`, creationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.CreationMessage{}
-	for rows.Next() {
-		var m model.CreationMessage
-		if err := rows.Scan(&m.ID, &m.CreationID, &m.Role, &m.Content, &m.ArticleID, &m.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
 }

@@ -1,5 +1,0 @@
-# 外部 Agent 运行时预设(schema 见 dsh.yml 头注释)
-name: OpenClaw
-command: openclaw agent exec --message-file {prompt_file}
-docs: https://docs.openclaw.ai
-note: prompt 写入临时文件传入;需 openclaw gateway 在跑(agent exec 经 Gateway 执行)

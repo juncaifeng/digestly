@@ -82,47 +82,16 @@ func registerCreationRoutes(r chi.Router, st *store.Store) {
 		}
 		writeJSON(w, 200, p)
 	})
-	// 会话线程(对话历史,正序)
-	r.Get("/creations/{id}/messages", func(w http.ResponseWriter, req *http.Request) {
-		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-		ms, err := st.ListMessages(id)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, ms)
-	})
-
-	// 对话一轮: 不生成文件、不消耗素材;agent 后端会用 digestly-cli 自行取材
-	r.Post("/creations/{id}/chat", func(w http.ResponseWriter, req *http.Request) {
-		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-		var body struct {
-			Message string `json:"message"`
-		}
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			writeErr(w, 400, err)
-			return
-		}
-		reply, err := compose.Chat(req.Context(), st, id, body.Message)
-		if err != nil {
-			writeErr(w, 422, err)
-			return
-		}
-		writeJSON(w, 200, map[string]string{"reply": reply})
-	})
-
-	// 生成: 展开素材源 -> 取最新未读 -> LLM/Agent -> 落库 -> 素材标记已读
+	// 生成: 展开素材源 -> 取最新未读 -> LLM -> 落库 -> 素材标记已读
 	// template_id 可省,缺省用创作关联的默认模板; force = 不限未读,取最新素材
-	// instruction 本轮用户指示(可空),注入 prompt 并随文章保存
 	r.Post("/creations/{id}/generate", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {
-			TemplateID  int64  `json:"template_id"`
-			Force       bool   `json:"force"`
-			Instruction string `json:"instruction"`
+			TemplateID int64 `json:"template_id"`
+			Force      bool  `json:"force"`
 		}
 		_ = json.NewDecoder(req.Body).Decode(&body)
-		a, err := compose.Generate(req.Context(), st, id, body.TemplateID, body.Force, body.Instruction)
+		a, err := compose.Generate(req.Context(), st, id, body.TemplateID, body.Force)
 		if err != nil {
 			writeErr(w, 422, err)
 			return

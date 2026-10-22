@@ -77,13 +77,10 @@ type Tag struct {
 	Name string `json:"name"`
 }
 
-// LLMConfig 一个生成后端配置。
-// kind=chat: 直连 OpenAI 兼容接口;kind=agent: 外部 Agent 进程(dsh / openclaw / claude 等)。
+// LLMConfig 一个大模型供应商配置(OpenAI 兼容接口)。
 type LLMConfig struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
-	Kind        string    `json:"kind"`    // "chat"(默认) | "agent"
-	Command     string    `json:"command"` // kind=agent 命令模板; {prompt_file} 占位, 无占位则 prompt 走 stdin
 	BaseURL     string    `json:"base_url"`
 	APIKey      string    `json:"api_key"` // 列表/详情接口返回掩码;写空串表示不修改
 	Model       string    `json:"model"`
@@ -120,27 +117,14 @@ type Creation struct {
 	CreatedAt  time.Time        `json:"created_at"`
 }
 
-// CreationMessage 创作项目的一条会话记录(对话线程持久化)。
-// role: "user" | "assistant"; ArticleID > 0 表示该轮产出了文件(指向 articles)。
-type CreationMessage struct {
+// Article 一篇生成的创作文章。CreationID 指向创作单元;ItemIDs 记录消耗的素材文章 id。
+type Article struct {
 	ID         int64     `json:"id"`
 	CreationID int64     `json:"creation_id"`
-	Role       string    `json:"role"`
+	TemplateID int64     `json:"template_id"`
+	Title      string    `json:"title"`
 	Content    string    `json:"content"`
-	ArticleID  int64     `json:"article_id,omitempty"`
+	ItemIDs    []int64   `json:"item_ids,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
-}
-
-// Article 一篇生成的创作文章。CreationID 指向创作单元;ItemIDs 记录消耗的素材文章 id。
-// UserMessage 本轮对话中用户随生成输入的指示(可空);与文章一起构成会话记录。
-type Article struct {
-	ID          int64     `json:"id"`
-	CreationID  int64     `json:"creation_id"`
-	TemplateID  int64     `json:"template_id"`
-	Title       string    `json:"title"`
-	Content     string    `json:"content"`
-	UserMessage string    `json:"user_message"` // 本轮用户指示(对话气泡用)
-	ItemIDs     []int64   `json:"item_ids,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }

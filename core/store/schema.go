@@ -93,8 +93,6 @@ CREATE TABLE IF NOT EXISTS column_items (
 CREATE TABLE IF NOT EXISTS llm_configs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
-  kind        TEXT NOT NULL DEFAULT 'chat',
-  command     TEXT NOT NULL DEFAULT '',
   base_url    TEXT NOT NULL,
   api_key     TEXT NOT NULL DEFAULT '',
   model       TEXT NOT NULL,
@@ -133,19 +131,8 @@ CREATE TABLE IF NOT EXISTS articles (
   template_id INTEGER NOT NULL DEFAULT 0,
   title       TEXT NOT NULL DEFAULT '',
   content     TEXT NOT NULL DEFAULT '',
-  user_message TEXT NOT NULL DEFAULT '',
   item_ids    TEXT NOT NULL DEFAULT '[]',
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- 创作项目会话线程: user/assistant 消息, assistant 可挂产出文件
-CREATE TABLE IF NOT EXISTS creation_messages (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  creation_id INTEGER NOT NULL DEFAULT 0 REFERENCES creations(id) ON DELETE CASCADE,
-  role        TEXT NOT NULL DEFAULT 'user',
-  content     TEXT NOT NULL DEFAULT '',
-  article_id  INTEGER NOT NULL DEFAULT 0,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `
