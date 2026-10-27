@@ -61,10 +61,10 @@ func main() {
 	}))
 	r.Route("/api", func(r chi.Router) {
 		registerFeedRoutes(r, st, sched)
-		registerItemRoutes(r, st)
+		registerItemRoutes(r, st, chain)
 		registerCollectorRoutes(r)
 		registerStatsRoutes(r, st)
-		registerPipelineRoutes(r, chain)
+		registerPipelineRoutes(r, st, chain)
 		registerMarketRoutes(r, mc, fm, st, collector.JSDir)
 			registerColumnRoutes(r, st)
 		registerSettingsRoutes(r, st, *dataDir)

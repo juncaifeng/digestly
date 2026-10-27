@@ -83,6 +83,10 @@ export const api = {
     req<void>(`/items/${id}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
   listCollectors: () => req<string[]>("/collectors"),
   runPipeline: () => req<{ processed: number }>("/pipeline/run", { method: "POST" }),
+  retryItem: (id: number) =>
+    req<{ id: number; status: ItemStatus }>(`/items/${id}/retry`, { method: "POST" }),
+  retryPipeline: () =>
+    req<{ retried: number; processed: number }>("/pipeline/retry", { method: "POST" }),
 }
 
 export interface MarketEntry {

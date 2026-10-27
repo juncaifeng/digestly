@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -15,7 +16,15 @@ import (
 	"github.com/juncaifeng/digestly/core/store"
 )
 
+// writeJSON 统一 JSON 出口。nil slice/map 序列化为 null,前端契约是空数组/对象,
+// 这里统一兜底为 [] / {},避免各 handler 逐个防(曾两次导致生产白屏)。
 func writeJSON(w http.ResponseWriter, code int, v any) {
+	switch rv := reflect.ValueOf(v); {
+	case rv.Kind() == reflect.Slice && rv.IsNil():
+		v = reflect.MakeSlice(rv.Type(), 0, 0)
+	case rv.Kind() == reflect.Map && rv.IsNil():
+		v = reflect.MakeMap(rv.Type())
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
@@ -107,7 +116,7 @@ func registerFeedRoutes(r chi.Router, st *store.Store, sched *scheduler.Schedule
 	})
 }
 
-func registerItemRoutes(r chi.Router, st *store.Store) {
+func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 	r.Get("/items", func(w http.ResponseWriter, req *http.Request) {
 		q := req.URL.Query()
 		feedID, _ := strconv.ParseInt(q.Get("feed_id"), 10, 64)
@@ -165,6 +174,20 @@ func registerItemRoutes(r chi.Router, st *store.Store) {
 		}
 		w.WriteHeader(204)
 	})
+	// 标注失败重试: 退回 pending 并立即重跑该篇标注
+	r.Post("/items/{id}/retry", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+		if err := st.RetryItem(id); err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		status, err := chain.RunOne(id)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"id": id, "status": status})
+	})
 	r.Post("/items/{id}/tags", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {
@@ -200,7 +223,7 @@ func registerStatsRoutes(r chi.Router, st *store.Store) {
 	})
 }
 
-func registerPipelineRoutes(r chi.Router, chain *pipeline.Chain) {
+func registerPipelineRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 	r.Post("/pipeline/run", func(w http.ResponseWriter, _ *http.Request) {
 		n, err := chain.RunOnce(500)
 		if err != nil {
@@ -208,5 +231,21 @@ func registerPipelineRoutes(r chi.Router, chain *pipeline.Chain) {
 			return
 		}
 		writeJSON(w, 200, map[string]int{"processed": n})
+	})
+	// 批量重试标注失败的文章: failed 退回 pending 后跑一批管线
+	r.Post("/pipeline/retry", func(w http.ResponseWriter, _ *http.Request) {
+		n, err := st.RetryFailed()
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		processed := 0
+		if n > 0 {
+			if processed, err = chain.RunOnce(500); err != nil {
+				writeErr(w, 500, err)
+				return
+			}
+		}
+		writeJSON(w, 200, map[string]int{"retried": n, "processed": processed})
 	})
 }

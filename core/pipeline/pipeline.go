@@ -40,19 +40,37 @@ func (c *Chain) RunOnce(limit int) (int, error) {
 	}
 	for i := range items {
 		it := &items[i]
-		status := model.StatusProcessed
-		for _, step := range c.steps {
-			if err := step.Enrich(it); err != nil {
-				log.Printf("pipeline %s item %d: %v", step.Name(), it.ID, err)
-				status = model.StatusFailed
-				break
-			}
-		}
+		status := c.enrich(it)
 		if err := c.store.SetEnrichment(it.ID, it.Summary, it.Keywords, it.Source, status); err != nil {
 			return i, err
 		}
 	}
 	return len(items), nil
+}
+
+// RunOne 重跑单篇标注(标注失败重试用),返回最终状态。
+// 调用方需先保证该篇处于 pending(如 RetryItem),否则会覆盖现有标注。
+func (c *Chain) RunOne(id int64) (model.ItemStatus, error) {
+	it, err := c.store.GetItem(id)
+	if err != nil {
+		return "", err
+	}
+	status := c.enrich(it)
+	if err := c.store.SetEnrichment(it.ID, it.Summary, it.Keywords, it.Source, status); err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
+// enrich 顺序执行标注步骤,全部成功为 processed,任一失败为 failed(已执行的步骤结果保留)。
+func (c *Chain) enrich(it *model.Item) model.ItemStatus {
+	for _, step := range c.steps {
+		if err := step.Enrich(it); err != nil {
+			log.Printf("pipeline %s item %d: %v", step.Name(), it.ID, err)
+			return model.StatusFailed
+		}
+	}
+	return model.StatusProcessed
 }
 
 // --- 内置规则式 Enricher ---

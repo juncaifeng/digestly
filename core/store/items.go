@@ -297,6 +297,43 @@ func (s *Store) ResetEnrichment(all bool) (int, error) {
 	return int(n), nil
 }
 
+// RetryFailed 把标注失败的文章退回 pending(已归档的除外),返回重置条数。
+func (s *Store) RetryFailed() (int, error) {
+	res, err := s.db.Exec(
+		`UPDATE items SET status='pending',summary='',keywords='',source='' WHERE status='failed' AND archived=0`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	// 同步 L1 索引(与 SQL 同条件: 跳过已归档)
+	s.index.mu.Lock()
+	for _, m := range s.index.items {
+		if m.item.Status == model.StatusFailed && !m.item.Archived {
+			m.item.Status = model.StatusPending
+			m.item.Summary, m.item.Keywords, m.item.Source = "", "", ""
+		}
+	}
+	s.index.mu.Unlock()
+	return int(n), nil
+}
+
+// RetryItem 把单篇退回 pending(单篇重跑标注用)。文章不存在时返回 sql.ErrNoRows。
+func (s *Store) RetryItem(id int64) error {
+	res, err := s.db.Exec(
+		`UPDATE items SET status='pending',summary='',keywords='',source='' WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	s.index.update(id, func(m *itemMeta) {
+		m.item.Status = model.StatusPending
+		m.item.Summary, m.item.Keywords, m.item.Source = "", "", ""
+	})
+	return nil
+}
+
 // PendingItems 取待标注文章(含正文,管线需要;批量作业不走缓存)。已归档的不参与标注。
 func (s *Store) PendingItems(limit int) ([]model.Item, error) {
 	if limit <= 0 {

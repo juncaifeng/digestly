@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import DOMPurify from "dompurify"
-import { Archive, ArchiveRestore, ExternalLink, X } from "lucide-react"
+import { Archive, ArchiveRestore, ExternalLink, RotateCcw, X } from "lucide-react"
 
 import { api, columnApi, type Column, type Item, type ItemStatus } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
@@ -83,6 +83,15 @@ export function ItemDetail({
           </div>
         </div>
         <div className="flex gap-1 shrink-0">
+          {item.status === "failed" && (
+            <Button
+              variant="ghost" size="icon"
+              title="标注失败,重试"
+              onClick={() => api.retryItem(item.id).then(() => onTagged()).catch(console.error)}
+            >
+              <RotateCcw className="size-4" />
+            </Button>
+          )}
           <Button
             variant="ghost" size="icon"
             title={item.archived ? "取消归档" : "归档(从列表隐藏,不删除)"}

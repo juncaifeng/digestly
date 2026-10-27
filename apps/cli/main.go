@@ -15,6 +15,7 @@
 //	digestly -cmd get -id 123                        # 按 id 读单篇文章全文
 //	digestly -cmd read -id 123 / unread -id 123      # 标记已读/未读
 //	digestly -cmd archive -id 123 / unarchive -id 123 # 归档/恢复
+//	digestly -cmd retry [-id 123]                     # 重试标注失败的文章(单篇或全部)
 //	digestly -cmd templates                          # 列出大纲模板
 package main
 
@@ -25,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -50,8 +52,8 @@ func main() {
 		offset  = flag.Int("offset", 0, "分页偏移")
 		full    = flag.Bool("full", false, "输出正文(默认只给摘要)")
 		format  = flag.String("format", "md", "输出格式: md | text | json")
-		cmd     = flag.String("cmd", "list", "命令: list | feeds | columns | stats | get | read | unread | archive | unarchive | templates | creation-list | creation-add | creation-update | creation-del | plan | generate")
-		id      = flag.Int64("id", 0, "条目/创作 id(get / read / unread / archive / unarchive / creation-update / creation-del)")
+		cmd     = flag.String("cmd", "list", "命令: list | feeds | columns | stats | get | read | unread | archive | unarchive | retry | reprocess | templates | creation-list | creation-add | creation-update | creation-del | plan | generate")
+		id      = flag.Int64("id", 0, "条目/创作 id(get / read / unread / archive / unarchive / retry / creation-update / creation-del)")
 		// 创作单元参数
 		creation = flag.String("creation", "", "创作单元(id 或名称),plan / generate 用")
 		name     = flag.String("name", "", "创作名称(creation-add/update)")
@@ -67,7 +69,7 @@ func main() {
 	var st *store.Store
 	var err error
 	switch *cmd {
-	case "creation-add", "creation-update", "creation-del", "generate", "read", "unread", "archive", "unarchive":
+	case "creation-add", "creation-update", "creation-del", "generate", "read", "unread", "archive", "unarchive", "retry":
 		st, err = store.Open(*dataDir + "/digestly.db")
 	default:
 		st, err = store.OpenReadOnly(*dataDir + "/digestly.db")
@@ -120,9 +122,7 @@ func main() {
 			fatal("%v", err)
 		}
 		if *format == "json" {
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			_ = enc.Encode(tpls)
+			printJSON(tpls)
 			return
 		}
 		for _, t := range tpls {
@@ -138,9 +138,7 @@ func main() {
 			fatal("%v", err)
 		}
 		if *format == "json" {
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			_ = enc.Encode(cols)
+			printJSON(cols)
 			return
 		}
 		for _, c := range cols {
@@ -163,6 +161,41 @@ func main() {
 			}
 			fmt.Printf("%-4d %-24s %-12s %-10s %s\n", f.ID, trunc(f.Title, 24), trunc(col, 12), f.Collector, f.URL)
 		}
+	case "retry":
+		// 重试标注失败的文章: -id 指定单篇,缺省全部 failed
+		chain := pipeline.NewChain(st,
+			pipeline.Source{Rules: map[string]string{}},
+			pipeline.Summary{MaxRunes: 200},
+			pipeline.Keywords{TopN: 5},
+		)
+		if *id > 0 {
+			if err := st.RetryItem(*id); err != nil {
+				fatal("重试失败: %v", err)
+			}
+			status, err := chain.RunOne(*id)
+			if err != nil {
+				fatal("重跑标注失败: %v", err)
+			}
+			fmt.Printf("文章 %d 重新标注: %s\n", *id, status)
+			return
+		}
+		n, err := st.RetryFailed()
+		if err != nil {
+			fatal("重置失败: %v", err)
+		}
+		fmt.Printf("已重置 %d 篇 failed 为待标注,开始重跑…\n", n)
+		done := 0
+		for {
+			c, err := chain.RunOnce(200)
+			if err != nil {
+				fatal("管线失败: %v", err)
+			}
+			done += c
+			if c == 0 {
+				break
+			}
+		}
+		fmt.Printf("重试完成: 重新标注 %d 篇\n", done)
 	case "reprocess":
 		// 重跑标注管线(管线升级后刷新存量摘要/关键词)
 		w, err := store.Open(*dataDir + "/digestly.db")
@@ -306,17 +339,28 @@ func resolveFeed(st *store.Store, s string) (int64, error) {
 	return 0, fmt.Errorf("找不到订阅源 %q", s)
 }
 
+// printJSON 统一 JSON 输出: 缩进两空格;nil slice/map 兜底为 [] / {} 而非 null(喂 AI 时的稳定契约)。
+func printJSON(v any) {
+	switch rv := reflect.ValueOf(v); {
+	case rv.Kind() == reflect.Slice && rv.IsNil():
+		v = reflect.MakeSlice(rv.Type(), 0, 0)
+	case rv.Kind() == reflect.Map && rv.IsNil():
+		v = reflect.MakeMap(rv.Type())
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
 func emit(items []model.Item, format string, full bool, query, since string) {
 	switch format {
 	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
 		if !full {
 			for i := range items {
 				items[i].Content = ""
 			}
 		}
-		_ = enc.Encode(items)
+		printJSON(items)
 	case "text":
 		for i, it := range items {
 			fmt.Printf("%d. %s\n   %s | %s\n   %s\n", i+1, it.Title, dateOf(it), sourceOf(it), it.Link)
@@ -407,9 +451,7 @@ func cmdGet(st *store.Store, id int64, format string) {
 		fatal("读取失败: %v", err)
 	}
 	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(it)
+		printJSON(it)
 		return
 	}
 	fmt.Printf("# %s\n\n- id: %d\n- 时间: %s\n- 来源: %s\n- 链接: %s\n", it.Title, it.ID, dateOf(*it), sourceOf(*it), it.Link)
@@ -534,9 +576,7 @@ func cmdPlan(st *store.Store, creationS string, templateID int64, force, idsOnly
 		return
 	}
 	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(p)
+		printJSON(p)
 		return
 	}
 	fmt.Printf("# 创作预览: %s\n\n", p.Creation.Name)
@@ -577,9 +617,7 @@ func cmdGenerate(st *store.Store, creationS string, templateID int64, force bool
 		fatal("生成失败: %v", err)
 	}
 	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(a)
+		printJSON(a)
 		return
 	}
 	fmt.Printf("# %s\n\n- id: %d\n- 消耗素材: %d 篇\n\n%s\n", a.Title, a.ID, len(a.ItemIDs), a.Content)

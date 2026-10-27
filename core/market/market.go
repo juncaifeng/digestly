@@ -7,6 +7,8 @@ package market
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,6 +41,7 @@ type Entry struct {
 	SourceURL     string                 `json:"source_url"`
 	Tags          []string               `json:"tags"`
 	ScriptVersion int                    `json:"script_version"`
+	SHA256        string                 `json:"sha256,omitempty"` // 脚本内容 sha256(hex);声明了则安装时强校验,缺失不校验(向后兼容)
 	ConfigSchema  map[string]ConfigField `json:"config_schema"`
 }
 
@@ -284,6 +287,14 @@ func (c *Client) Install(ctx context.Context, name, destDir string) (*Entry, err
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
+	}
+	// 内容校验: manifest 声明了 sha256 就必须匹配,不匹配拒绝落盘(防篡改)
+	if entry.SHA256 != "" {
+		sum := sha256.Sum256(body)
+		actual := hex.EncodeToString(sum[:])
+		if !strings.EqualFold(entry.SHA256, actual) {
+			return nil, fmt.Errorf("collector %q sha256 mismatch: manifest=%s downloaded=%s", name, entry.SHA256, actual)
+		}
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
