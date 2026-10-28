@@ -30,6 +30,7 @@ export function ItemDetail({
   // 查看方式: 阅读(整篇) / 滑窗切块(逐块原文 + 块摘要)
   const [view, setView] = useState<"read" | "chunks">("read")
   const [chunks, setChunks] = useState<ItemChunk[] | null>(null)
+  const [regen, setRegen] = useState(false)
   const articleRef = useRef<HTMLElement>(null)
   const chunksRef = useRef<HTMLDivElement>(null)
 
@@ -81,6 +82,21 @@ export function ItemDetail({
     onTagged()
   }
 
+  // 重跑本篇标注: 重置后走全链(含 llm-summary 切块),完成后重新拉切块
+  const regenChunks = async () => {
+    setRegen(true)
+    try {
+      await api.retryItem(item.id)
+      onTagged()
+      const cs = await api.getItemChunks(item.id)
+      setChunks(cs)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setRegen(false)
+    }
+  }
+
   return (
     <div className="flex-1 flex flex-col border-l overflow-hidden">
       <div className="flex items-start gap-2 p-4 border-b">
@@ -99,10 +115,10 @@ export function ItemDetail({
           </div>
         </div>
         <div className="flex gap-1 shrink-0">
-          {item.status === "failed" && (
+          {(item.status === "failed" || item.status === "processed") && (
             <Button
               variant="ghost" size="icon"
-              title="标注失败,重试"
+              title={item.status === "failed" ? "标注失败,重试" : "重跑本篇标注(重生成摘要/切块/实体,会调用 LLM)"}
               onClick={() => api.retryItem(item.id).then(() => onTagged()).catch(console.error)}
             >
               <RotateCcw className="size-4" />
@@ -193,9 +209,18 @@ export function ItemDetail({
       ) : (
         <div ref={chunksRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
           {(chunks ?? []).length === 0 && (
-            <p className="text-sm text-muted-foreground text-center mt-8">
-              {chunks === null ? "加载中…" : "还没有切块数据 — 配置 chat 模型后由标注管线生成"}
-            </p>
+            <div className="flex flex-col items-center gap-2 mt-8">
+              <p className="text-sm text-muted-foreground text-center max-w-sm">
+                {chunks === null
+                  ? "加载中…"
+                  : "还没有切块数据 — 该篇可能在启用滑窗摘要前已处理;重跑一次本篇标注即可生成切块(需配置 chat 模型)"}
+              </p>
+              {chunks !== null && (
+                <Button size="sm" variant="outline" disabled={regen} onClick={() => void regenChunks()}>
+                  <RotateCcw className="size-3.5" /> {regen ? "生成中…(LLM 处理需片刻)" : "重跑本篇生成切块"}
+                </Button>
+              )}
+            </div>
           )}
           {(chunks ?? []).map((c) => (
             <div key={c.id} className="border rounded-lg overflow-hidden">
