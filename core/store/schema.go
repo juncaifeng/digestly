@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS item_chunks (
   item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   idx     INTEGER NOT NULL,
   text    TEXT NOT NULL DEFAULT '',
-  summary TEXT NOT NULL DEFAULT ''
+  summary TEXT NOT NULL DEFAULT '',
+  entities TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_item_chunks_item ON item_chunks(item_id, idx);
 -- 管线执行日志: 每篇每步骤一行(ok/failed/skipped + 耗时 + 原因)

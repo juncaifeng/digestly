@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import DOMPurify from "dompurify"
 import { Archive, ArchiveRestore, ExternalLink, RotateCcw, X } from "lucide-react"
 
-import { api, columnApi, type Column, type Item, type ItemChunk, type ItemStatus } from "@/api/client"
+import { api, columnApi, type Column, type Item, type ItemChunk, type ItemEntity, type ItemStatus } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,17 +30,22 @@ export function ItemDetail({
   // 查看方式: 阅读(整篇) / 滑窗切块(逐块原文 + 块摘要)
   const [view, setView] = useState<"read" | "chunks">("read")
   const [chunks, setChunks] = useState<ItemChunk[] | null>(null)
+  const [entities, setEntities] = useState<ItemEntity[] | null>(null)
   const [regen, setRegen] = useState(false)
   const articleRef = useRef<HTMLElement>(null)
   const chunksRef = useRef<HTMLDivElement>(null)
 
-  // 切块数据: 切到「滑窗切块」时才拉
+  // 切块与实体数据: 切到「滑窗切块」时才拉
   useEffect(() => {
     if (view !== "chunks") return
     let cancelled = false
     setChunks(null)
+    setEntities(null)
     api.getItemChunks(item.id)
       .then((cs) => { if (!cancelled) setChunks(cs) })
+      .catch(console.error)
+    api.getItemEntities(item.id)
+      .then((es) => { if (!cancelled) setEntities(es) })
       .catch(console.error)
     return () => { cancelled = true }
   }, [view, item.id])
@@ -88,8 +93,9 @@ export function ItemDetail({
     try {
       await api.retryItem(item.id)
       onTagged()
-      const cs = await api.getItemChunks(item.id)
+      const [cs, es] = await Promise.all([api.getItemChunks(item.id), api.getItemEntities(item.id)])
       setChunks(cs)
+      setEntities(es)
     } catch (e) {
       console.error(e)
     } finally {
@@ -192,7 +198,7 @@ export function ItemDetail({
         </div>
         {view === "chunks" && (
           <span className="text-xs text-muted-foreground">
-            {chunks ? `${chunks.length} 块` : "加载中…"} · 总摘要见文章顶部
+            {chunks ? `${chunks.length} 块` : "加载中…"}
           </span>
         )}
       </div>
@@ -208,8 +214,37 @@ export function ItemDetail({
         />
       ) : (
         <div ref={chunksRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+          {/* 总摘要 */}
+          <div className="border rounded-lg p-3">
+            <Badge className="mb-1.5">总摘要</Badge>
+            <p className="text-sm whitespace-pre-wrap leading-relaxed">{item.summary || "(无总摘要)"}</p>
+          </div>
+          {/* 文章实体 */}
+          <div className="border rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Badge variant="secondary">文章实体</Badge>
+              <span className="text-xs text-muted-foreground">
+                {entities === null ? "加载中…" : `${entities.length} 个`}
+              </span>
+            </div>
+            {(entities ?? []).length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {entities!.map((e) => (
+                  <Badge key={e.id} variant="outline" title={e.type || "实体"}>
+                    {e.name}{e.count > 1 ? ` ×${e.count}` : ""}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              entities !== null && (
+                <p className="text-xs text-muted-foreground">
+                  还没有实体 — 需 llm-graph 步骤处理(配置 chat 模型后重跑本篇)
+                </p>
+              )
+            )}
+          </div>
           {(chunks ?? []).length === 0 && (
-            <div className="flex flex-col items-center gap-2 mt-8">
+            <div className="flex flex-col items-center gap-2 mt-4">
               <p className="text-sm text-muted-foreground text-center max-w-sm">
                 {chunks === null
                   ? "加载中…"
@@ -228,6 +263,13 @@ export function ItemDetail({
                 <Badge variant="secondary" className="shrink-0">块 {c.index + 1}</Badge>
                 <p className="text-sm font-medium flex-1">{c.summary || "(无块摘要)"}</p>
               </div>
+              {(c.entities?.length ?? 0) > 0 && (
+                <div className="px-3 pt-2 flex flex-wrap gap-1">
+                  {c.entities.map((en) => (
+                    <Badge key={en} variant="outline" className="text-xs">{en}</Badge>
+                  ))}
+                </div>
+              )}
               <details>
                 <summary className="px-3 py-1.5 text-xs text-muted-foreground cursor-pointer hover:bg-accent/50">
                   块原文({c.text.length} 字)

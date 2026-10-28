@@ -247,3 +247,23 @@ func (s *Store) GetItemEmbedding(itemID int64) (string, []float32, bool, error) 
 	}
 	return model, blobToVec(blob), true, nil
 }
+
+// ItemEntities 取一篇文章提及的实体(名称/类型/提及次数,次数降序)。
+func (s *Store) ItemEntities(itemID int64) ([]Entity, error) {
+	rows, err := s.db.Query(`SELECT e.id,e.name,e.type,e.normalized,ie.count
+		FROM item_entities ie JOIN entities e ON e.id=ie.entity_id
+		WHERE ie.item_id=? ORDER BY ie.count DESC, e.id`, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Entity{}
+	for rows.Next() {
+		var e Entity
+		if err := rows.Scan(&e.ID, &e.Name, &e.Type, &e.Normalized, &e.ItemCount); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

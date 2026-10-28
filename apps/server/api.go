@@ -171,6 +171,22 @@ func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 		}
 		writeJSON(w, 200, logs)
 	})
+	// 单篇提及的实体(名称/类型/提及次数)
+	r.Get("/items/{id}/entities", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+		ents, err := st.ItemEntities(id)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		out := make([]map[string]any, 0, len(ents))
+		for _, e := range ents {
+			out = append(out, map[string]any{
+				"id": e.ID, "name": e.Name, "type": e.Type, "count": e.ItemCount,
+			})
+		}
+		writeJSON(w, 200, out)
+	})
 	r.Post("/items/{id}/read", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {

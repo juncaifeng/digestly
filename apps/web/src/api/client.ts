@@ -34,6 +34,15 @@ export interface ItemChunk {
   index: number
   text: string
   summary: string
+  entities: string[]
+}
+
+// 单篇提及的实体
+export interface ItemEntity {
+  id: number
+  name: string
+  type: string
+  count: number
 }
 
 export interface Item {
@@ -94,6 +103,7 @@ export const api = {
   },
   getItem: (id: number) => req<Item>(`/items/${id}`),
   getItemChunks: (id: number) => req<ItemChunk[]>(`/items/${id}/chunks`),
+  getItemEntities: (id: number) => req<ItemEntity[]>(`/items/${id}/entities`),
   getPipelineLogs: (id: number) => req<PipelineLog[]>(`/items/${id}/pipeline-logs`),
   markRead: (id: number, read: boolean) =>
     req<void>(`/items/${id}/read`, { method: "POST", body: JSON.stringify({ read }) }),

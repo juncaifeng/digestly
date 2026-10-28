@@ -4,6 +4,7 @@ package pipeline
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -62,14 +63,22 @@ func (s *LLMSummary) Enrich(it *model.Item) error {
 	chunks := make([]store.ItemChunk, 0, len(parts))
 	summaries := make([]string, 0, len(parts))
 	for i, p := range parts {
-		sum, err := llm.Chat(ctx, cfg,
-			"你是一名专业编辑。",
-			fmt.Sprintf("用中文概括以下内容的核心要点(100-150字,直接给要点):\n\n%s", p))
+		raw, err := llm.Chat(ctx, cfg,
+			"你是信息抽取引擎。",
+			fmt.Sprintf(`对以下内容输出 JSON(不要其他文字):
+{"summary":"核心要点概括(100-150字,中文)","entities":["内容中的重要实体名(人/组织/产品/技术等)"]}
+只保留真实出现的实体,没有则为空数组。
+
+内容:
+%s`, p))
 		if err != nil {
 			return fmt.Errorf("块 %d 摘要失败: %w", i, err)
 		}
-		sum = strings.TrimSpace(sum)
-		chunks = append(chunks, store.ItemChunk{Text: p, Summary: sum})
+		sum, ents := parseChunkResult(raw)
+		if sum == "" {
+			sum = strings.TrimSpace(raw) // 兜底: 非 JSON 输出整段当摘要
+		}
+		chunks = append(chunks, store.ItemChunk{Text: p, Summary: sum, Entities: ents})
 		summaries = append(summaries, sum)
 	}
 
@@ -115,4 +124,23 @@ func slideRunes(s string, window, overlap int) []string {
 		}
 	}
 	return out
+}
+
+// parseChunkResult 解析块处理的 JSON 输出 {summary, entities}。
+// 非 JSON 时返回空摘要(调用方兜底整段文本),实体为空。
+func parseChunkResult(raw string) (summary string, entities []string) {
+	entities = []string{}
+	var res struct {
+		Summary  string   `json:"summary"`
+		Entities []string `json:"entities"`
+	}
+	if err := json.Unmarshal([]byte(extractJSON(raw)), &res); err != nil {
+		return "", entities
+	}
+	for _, e := range res.Entities {
+		if e = strings.TrimSpace(e); e != "" {
+			entities = append(entities, e)
+		}
+	}
+	return strings.TrimSpace(res.Summary), entities
 }

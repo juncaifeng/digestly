@@ -101,6 +101,15 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	// 同样探测补 item_chunks.entities(分块实体)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('item_chunks') WHERE name='entities'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.Exec(`ALTER TABLE item_chunks ADD COLUMN entities TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return err
+		}
+	}
 	// 同样探测补 llm_configs.kind(chat / embedding)
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('llm_configs') WHERE name='kind'`).Scan(&n); err != nil {
 		return err

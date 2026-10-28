@@ -31,3 +31,20 @@ func TestSlideRunes(t *testing.T) {
 		t.Fatalf("cjk got %d blocks first=%d runes", len(got), len([]rune(got[0])))
 	}
 }
+
+func TestParseChunkResult(t *testing.T) {
+	sum, ents := parseChunkResult(`{"summary":"要点","entities":["OpenAI","GPT-5"," "]}`)
+	if sum != "要点" || len(ents) != 2 || ents[0] != "OpenAI" {
+		t.Fatalf("sum=%q ents=%v", sum, ents)
+	}
+	// 非 JSON: 摘要为空(调用方兜底), 实体为空
+	sum, ents = parseChunkResult("纯文本输出")
+	if sum != "" || len(ents) != 0 {
+		t.Fatalf("fallback sum=%q ents=%v", sum, ents)
+	}
+	// 围栏 JSON 也能解
+	sum, ents = parseChunkResult("```json\n{\"summary\":\"s\",\"entities\":[\"a\"]}\n```")
+	if sum != "s" || len(ents) != 1 {
+		t.Fatalf("fenced sum=%q ents=%v", sum, ents)
+	}
+}
