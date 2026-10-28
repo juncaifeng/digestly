@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Check, Copy, Cpu, Download, Pencil, Plus, RefreshCw, Save, Star, Trash2, Zap } from "lucide-react"
 
-import { ingestApi, llmApi, mcpApi, opmlApi, type EmbeddingProviderPreset, type LLMConfig, type ProviderPreset } from "@/api/client"
+import { ingestApi, llmApi, mcpApi, opmlApi, pipelineCfgApi, type EmbeddingProviderPreset, type LLMConfig, type ProviderPreset } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,6 +28,26 @@ export function SettingsView() {
   // 采集入库限制(全局默认)
   const [ingest, setIngest] = useState({ max_items: 50, max_age_days: 30 })
 
+  // 从接口拉取的可用模型列表(填好地址/密钥后拉取;也可手动填模型名)
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+
+  // 标注管线配置(管线步骤用哪套 LLM / 向量模型;0 = 跟随默认)
+  const [pipeCfg, setPipeCfg] = useState({ chat_config_id: 0, embedding_config_id: 0 })
+
+  const fetchModelList = async () => {
+    setFetchingModels(true); setError(""); setNotice("")
+    try {
+      const r = await llmApi.fetchModels({ id: form.id, base_url: form.base_url, api_key: form.api_key })
+      setFetchedModels(r.models)
+      setNotice(`拉取到 ${r.models.length} 个模型 — 可在模型输入框下拉选择,或继续手动填写`)
+    } catch (e) {
+      setError(`拉取模型列表失败: ${(e as Error).message}`)
+    } finally {
+      setFetchingModels(false)
+    }
+  }
+
   // MCP 服务状态
   const [mcpState, setMcpState] = useState<{
     status: "checking" | "ok" | "error"
@@ -49,6 +69,7 @@ export function SettingsView() {
     llmApi.presets().then(setPresets).catch(() => {})
     llmApi.embeddingPresets().then(setEmbedPresets).catch(() => {})
     ingestApi.get().then(setIngest).catch(() => {})
+    pipelineCfgApi.get().then(setPipeCfg).catch(() => {})
   }
   useEffect(() => { void load() }, [])
 
@@ -278,6 +299,57 @@ export function SettingsView() {
           </Card>
         </section>
 
+        {/* 标注管线: 选模型 */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <RefreshCw className="size-5" /> 标注管线
+            <Badge variant="secondary" className="ml-auto">摘要 / 实体 / 向量</Badge>
+          </h2>
+          <Card>
+            <CardContent className="flex flex-col gap-2 pt-4">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">LLM(滑窗摘要 / 实体关系抽取)</span>
+                  <select
+                    className="border rounded-md h-9 px-2 text-sm bg-transparent"
+                    value={pipeCfg.chat_config_id}
+                    onChange={(e) => setPipeCfg({ ...pipeCfg, chat_config_id: Number(e.target.value) })}
+                  >
+                    <option value={0}>跟随默认(chat 默认配置)</option>
+                    {configs.filter((c) => c.kind !== "embedding").map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} · {c.model}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">向量模型(文章 / 实体向量化)</span>
+                  <select
+                    className="border rounded-md h-9 px-2 text-sm bg-transparent"
+                    value={pipeCfg.embedding_config_id}
+                    onChange={(e) => setPipeCfg({ ...pipeCfg, embedding_config_id: Number(e.target.value) })}
+                  >
+                    <option value={0}>跟随默认(embedding 默认配置)</option>
+                    {configs.filter((c) => c.kind === "embedding").map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} · {c.model}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <Button size="sm" onClick={() => pipelineCfgApi.save(pipeCfg.chat_config_id, pipeCfg.embedding_config_id)
+                  .then(() => setNotice("标注管线配置已保存,下次处理生效"))
+                  .catch((e) => setError(`保存失败: ${(e as Error).message}`))}>
+                  <Save className="size-3.5" /> 保存
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                管线步骤(滑窗摘要 llm-summary / 实体图谱 llm-graph)用这里的配置;
+                与创作生成用的默认 chat 配置互相独立,可各选便宜/合适的模型。未选时跟随各自 kind 的默认配置。
+              </p>
+            </CardContent>
+          </Card>
+        </section>
+
         {/* LLM 配置 */}
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold flex items-center gap-2">
@@ -359,8 +431,18 @@ export function SettingsView() {
               <div className="grid grid-cols-2 gap-2">
                 <Input placeholder="名称,如 DeepSeek" value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                <Input placeholder="模型,如 deepseek-flash" value={form.model}
-                  onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                <div className="flex gap-1">
+                  <Input placeholder="模型,可手动填写或下拉选择" value={form.model} list="model-options"
+                    onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                  <Button size="sm" variant="outline" className="shrink-0 h-9" disabled={fetchingModels || !form.base_url.trim()}
+                    title="填好 Base URL(和 API Key)后,从接口 GET /models 拉取可用模型列表"
+                    onClick={() => void fetchModelList()}>
+                    <RefreshCw className={"size-3.5 " + (fetchingModels ? "animate-spin" : "")} /> 拉取
+                  </Button>
+                </div>
+                <datalist id="model-options">
+                  {fetchedModels.map((m) => <option key={m} value={m} />)}
+                </datalist>
               </div>
               {form.kind === "embedding" && embedPreset && embedPreset.models.length > 0 && (
                 <select

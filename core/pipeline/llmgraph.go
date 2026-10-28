@@ -45,7 +45,7 @@ type extractResult struct {
 }
 
 func (g *LLMGraph) Enrich(it *model.Item) error {
-	cfg, err := g.st.DefaultConfigOfKind("chat")
+	cfg, err := g.st.PipelineConfigOfKind("chat")
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil
@@ -112,7 +112,7 @@ func (g *LLMGraph) Enrich(it *model.Item) error {
 	}
 
 	// 向量化(有默认 embedding 配置才做)
-	if ecfg, err := g.st.DefaultConfigOfKind("embedding"); err == nil && ecfg != nil {
+	if ecfg, err := g.st.PipelineConfigOfKind("embedding"); err == nil && ecfg != nil {
 		textForVec := it.Summary
 		if strings.TrimSpace(textForVec) == "" {
 			textForVec = it.Title

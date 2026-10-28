@@ -46,3 +46,34 @@ func TestEmbedErrors(t *testing.T) {
 		t.Fatal("count mismatch should error")
 	}
 }
+
+func TestListModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer k" {
+			t.Errorf("auth = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"},{"id":"m2"},{"id":""}]}`))
+	}))
+	defer srv.Close()
+
+	names, err := ListModels(context.Background(), srv.URL, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 2 || names[0] != "m1" || names[1] != "m2" {
+		t.Fatalf("names = %v", names)
+	}
+	if _, err := ListModels(context.Background(), "", "k"); err == nil {
+		t.Fatal("empty base_url should error")
+	}
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not json`))
+	}))
+	defer srv2.Close()
+	if _, err := ListModels(context.Background(), srv2.URL, ""); err == nil {
+		t.Fatal("bad body should error")
+	}
+}

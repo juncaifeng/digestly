@@ -55,6 +55,84 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 		writeJSON(w, 200, map[string]int{"max_items": *body.MaxItems, "max_age_days": *body.MaxAgeDays})
 	})
 
+	// 标注管线配置: 指定管线(llm-summary / llm-graph)用的 LLM 与向量模型;0 = 跟随该 kind 默认
+	r.Get("/settings/pipeline", func(w http.ResponseWriter, _ *http.Request) {
+		get := func(kind string) int64 {
+			if v, ok, err := st.GetSetting("pipeline_" + kind + "_config_id"); err == nil && ok {
+				if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+					return id
+				}
+			}
+			return 0
+		}
+		writeJSON(w, 200, map[string]int64{
+			"chat_config_id":     get("chat"),
+			"embedding_config_id": get("embedding"),
+		})
+	})
+	r.Put("/settings/pipeline", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			ChatConfigID     *int64 `json:"chat_config_id"`
+			EmbeddingConfigID *int64 `json:"embedding_config_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.ChatConfigID == nil || body.EmbeddingConfigID == nil {
+			writeErr(w, 400, fmt.Errorf("chat_config_id / embedding_config_id 必填(0 = 跟随默认)"))
+			return
+		}
+		for kind, id := range map[string]int64{"chat": *body.ChatConfigID, "embedding": *body.EmbeddingConfigID} {
+			if id < 0 {
+				writeErr(w, 400, fmt.Errorf("配置 id 不能为负"))
+				return
+			}
+			if id > 0 {
+				c, err := st.GetLLMConfig(id)
+				if err != nil || (c.Kind != kind && !(kind == "chat" && c.Kind == "")) {
+					writeErr(w, 400, fmt.Errorf("配置 %d 不存在或不是 %s 类型", id, kind))
+					return
+				}
+			}
+			if err := st.SetPipelineConfig(kind, id); err != nil {
+				writeErr(w, 500, err)
+				return
+			}
+		}
+		writeJSON(w, 200, map[string]int64{
+			"chat_config_id": *body.ChatConfigID, "embedding_config_id": *body.EmbeddingConfigID,
+		})
+	})
+
+	// 从供应商/本地运行时拉取可用模型列表(OpenAI 兼容 GET /models)
+	r.Post("/llm/models", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			BaseURL string `json:"base_url"`
+			APIKey  string `json:"api_key"`
+			ID      int64  `json:"id"` // >0 时从已存配置取 base_url/api_key(表单未填新密钥时)
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		if body.ID > 0 {
+			saved, err := st.GetLLMConfig(body.ID)
+			if err != nil {
+				writeErr(w, 404, err)
+				return
+			}
+			if body.BaseURL == "" {
+				body.BaseURL = saved.BaseURL
+			}
+			if body.APIKey == "" || strings.HasPrefix(body.APIKey, "****") {
+				body.APIKey = saved.APIKey
+			}
+		}
+		names, err := llm.ListModels(req.Context(), body.BaseURL, body.APIKey)
+		if err != nil {
+			writeErr(w, 502, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"models": names})
+	})
+
 	// 供应商预设: 内置(embed) + <data>/llm_providers/*.yml 用户覆盖
 	r.Get("/llm/presets", func(w http.ResponseWriter, _ *http.Request) {
 		presets, err := llm.Presets(filepath.Join(dataDir, "llm_providers"))

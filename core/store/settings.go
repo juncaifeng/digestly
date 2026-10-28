@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strconv"
 	"strings"
 
 	"github.com/juncaifeng/digestly/core/model"
@@ -165,4 +166,23 @@ func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(`INSERT INTO app_settings(key,value) VALUES(?,?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
 	return err
+}
+
+// PipelineConfigOfKind 取标注管线使用的配置:
+// app_settings 的 pipeline_<kind>_config_id 优先(>0 时按 id 取),
+// 未配置或配置无效时回落到该 kind 的默认配置。
+func (s *Store) PipelineConfigOfKind(kind string) (*model.LLMConfig, error) {
+	if v, ok, err := s.GetSetting("pipeline_" + kind + "_config_id"); err == nil && ok {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+			if c, err := s.GetLLMConfig(id); err == nil && (c.Kind == kind || (kind == "chat" && c.Kind == "")) {
+				return c, nil
+			}
+		}
+	}
+	return s.DefaultConfigOfKind(kind)
+}
+
+// SetPipelineConfig 指定标注管线使用的配置 id(0 = 跟随该 kind 的默认配置)。
+func (s *Store) SetPipelineConfig(kind string, configID int64) error {
+	return s.SetSetting("pipeline_"+kind+"_config_id", strconv.FormatInt(configID, 10))
 }

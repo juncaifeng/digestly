@@ -274,6 +274,16 @@ export const mcpApi = {
   },
 }
 
+export const pipelineCfgApi = {
+  // 标注管线用的 LLM / 向量模型配置;0 = 跟随该 kind 默认
+  get: () => req<{ chat_config_id: number; embedding_config_id: number }>("/settings/pipeline"),
+  save: (chat_config_id: number, embedding_config_id: number) =>
+    req<{ chat_config_id: number; embedding_config_id: number }>("/settings/pipeline", {
+      method: "PUT",
+      body: JSON.stringify({ chat_config_id, embedding_config_id }),
+    }),
+}
+
 export const ingestApi = {
   // 采集入库限制(全局默认): 条数 + 天数,0 = 不限
   get: () => req<{ max_items: number; max_age_days: number }>("/settings/ingest"),
@@ -326,6 +336,9 @@ export const pipelineApi = {
 export const llmApi = {
   presets: () => req<ProviderPreset[]>("/llm/presets"),
   embeddingPresets: () => req<EmbeddingProviderPreset[]>("/llm/embedding-presets"),
+  // 从供应商/本地运行时拉取可用模型列表(填好 base_url(+api key)后可用;也可手动填模型名)
+  fetchModels: (body: { id?: number; base_url?: string; api_key?: string }) =>
+    req<{ models: string[] }>("/llm/models", { method: "POST", body: JSON.stringify(body) }),
   list: () => req<LLMConfig[]>("/llm/configs"),
   create: (c: Partial<LLMConfig>) =>
     req<LLMConfig>("/llm/configs", { method: "POST", body: JSON.stringify(c) }),

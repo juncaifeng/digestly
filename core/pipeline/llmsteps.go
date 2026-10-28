@@ -30,7 +30,7 @@ func NewLLMSummary(st *store.Store) *LLMSummary {
 func (s *LLMSummary) Name() string { return "llm-summary" }
 
 func (s *LLMSummary) Enrich(it *model.Item) error {
-	cfg, err := s.st.DefaultConfigOfKind("chat")
+	cfg, err := s.st.PipelineConfigOfKind("chat")
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil // 无 chat 配置: 跳过,保留规则摘要
