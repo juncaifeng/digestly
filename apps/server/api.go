@@ -149,6 +149,16 @@ func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 		}
 		writeJSON(w, 200, item)
 	})
+	// 滑动窗口摘要: 逐块原文 + 块摘要(总摘要在 item.summary)
+	r.Get("/items/{id}/chunks", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+		chunks, err := st.ItemChunks(id)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, chunks)
+	})
 	r.Post("/items/{id}/read", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {

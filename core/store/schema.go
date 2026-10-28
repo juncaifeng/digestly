@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS items (
   source       TEXT NOT NULL DEFAULT '',
   published_at DATETIME,
   status       TEXT NOT NULL DEFAULT 'pending',
+  claimed_at   DATETIME,
   read         INTEGER NOT NULL DEFAULT 0,
   archived     INTEGER NOT NULL DEFAULT 0,
   created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -51,6 +52,57 @@ END;
 CREATE TABLE IF NOT EXISTS tags (
   id   INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE
+);
+-- 文章滑动窗口分块与逐块摘要(总摘要在 items.summary)
+CREATE TABLE IF NOT EXISTS item_chunks (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  idx     INTEGER NOT NULL,
+  text    TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_item_chunks_item ON item_chunks(item_id, idx);
+-- 知识图谱: 实体(全局归一) / 实体提及 / 实体关系(三元组,带出处)
+CREATE TABLE IF NOT EXISTS entities (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  type       TEXT NOT NULL DEFAULT '',
+  normalized TEXT NOT NULL UNIQUE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS item_entities (
+  item_id   INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  mention   TEXT NOT NULL DEFAULT '',
+  count     INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (item_id, entity_id)
+);
+CREATE TABLE IF NOT EXISTS relations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  predicate   TEXT NOT NULL,
+  object_id   INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  item_id     INTEGER NOT NULL DEFAULT 0,
+  confidence  REAL NOT NULL DEFAULT 1,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_relations_subject ON relations(subject_id);
+CREATE INDEX IF NOT EXISTS idx_relations_object ON relations(object_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_relations_spo ON relations(subject_id, predicate, object_id);
+-- 向量(model 标识, float32 小端字节)
+CREATE TABLE IF NOT EXISTS item_embeddings (
+  item_id    INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+  model      TEXT NOT NULL,
+  dims       INTEGER NOT NULL,
+  vec        BLOB NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS entity_embeddings (
+  entity_id  INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+  model      TEXT NOT NULL,
+  dims       INTEGER NOT NULL,
+  vec        BLOB NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 -- 已挂载的第三方市场源(订阅源清单地址)
 CREATE TABLE IF NOT EXISTS market_sources (
@@ -98,6 +150,7 @@ CREATE TABLE IF NOT EXISTS column_items (
 CREATE TABLE IF NOT EXISTS llm_configs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
+  kind        TEXT NOT NULL DEFAULT 'chat',
   base_url    TEXT NOT NULL,
   api_key     TEXT NOT NULL DEFAULT '',
   model       TEXT NOT NULL,

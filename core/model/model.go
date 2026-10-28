@@ -7,9 +7,10 @@ import "time"
 type ItemStatus string
 
 const (
-	StatusPending   ItemStatus = "pending"   // 已采集，等待标注管线处理
-	StatusProcessed ItemStatus = "processed" // 已完成标注(来源/摘要/关键词)
-	StatusFailed    ItemStatus = "failed"    // 标注失败，可重试
+	StatusPending    ItemStatus = "pending"    // 已采集，等待标注管线处理
+	StatusProcessing ItemStatus = "processing" // 处理中(已被管线认领)
+	StatusProcessed  ItemStatus = "processed"  // 已完成标注(来源/摘要/关键词)
+	StatusFailed     ItemStatus = "failed"     // 标注失败，可重试
 )
 
 // Feed 一个订阅源。
@@ -78,15 +79,18 @@ type Tag struct {
 }
 
 // LLMConfig 一个大模型供应商配置(OpenAI 兼容接口)。
+// LLMConfig 一个大模型供应商配置(OpenAI 兼容接口)。
+// kind: "chat"(默认,对话/生成) | "embedding"(向量模型,实体/文章向量化)。
 type LLMConfig struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
+	Kind        string    `json:"kind"` // "chat"(默认) | "embedding"
 	BaseURL     string    `json:"base_url"`
 	APIKey      string    `json:"api_key"` // 列表/详情接口返回掩码;写空串表示不修改
 	Model       string    `json:"model"`
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens"`
-	IsDefault   bool      `json:"is_default"`
+	IsDefault   bool      `json:"is_default"` // 同 kind 内唯一
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

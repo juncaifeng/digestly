@@ -14,7 +14,7 @@ export interface Feed {
   unread_count: number
 }
 
-export type ItemStatus = "pending" | "processed" | "failed"
+export type ItemStatus = "pending" | "processing" | "processed" | "failed"
 
 export interface Item {
   id: number
@@ -157,12 +157,13 @@ export const columnApi = {
 export interface LLMConfig {
   id: number
   name: string
+  kind: "chat" | "embedding" // chat = 对话/生成; embedding = 向量模型
   base_url: string
   api_key: string // 列表接口返回掩码;提交时空串 = 不修改
   model: string
   temperature: number
   max_tokens: number
-  is_default: boolean
+  is_default: boolean // 同 kind 内唯一
   created_at: string
   updated_at: string
 }
@@ -211,12 +212,20 @@ export interface ModelPreset {
   concurrency: number
 }
 
+export interface EmbeddingPreset {
+  id: string
+  label: string
+  dimensions: number
+  pricing: string
+}
+
 export interface ProviderPreset {
   name: string
   base_url: string
   docs: string
   note: string
   models: ModelPreset[]
+  embeddings?: EmbeddingPreset[]
 }
 
 // MCP 入口地址(与 web 同一 server 的 /mcp; dev 下 vite 只代理 /api,故用绝对地址)
@@ -281,7 +290,7 @@ export const llmApi = {
   remove: (id: number) => req<void>(`/llm/configs/${id}`, { method: "DELETE" }),
   setDefault: (id: number) =>
     req<void>(`/llm/configs/${id}/default`, { method: "POST" }),
-  test: (body: { id?: number; base_url?: string; api_key?: string; model?: string }) =>
+  test: (body: { id?: number; kind?: string; base_url?: string; api_key?: string; model?: string }) =>
     req<{ reply: string }>("/llm/test", { method: "POST", body: JSON.stringify(body) }),
 }
 

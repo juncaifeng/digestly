@@ -9,3 +9,11 @@ models:
   - id: Qwen/Qwen3-Next-80B-A3B-Instruct
     label: Qwen3 Next 80B
     context: 256K
+
+embeddings:
+  - id: BAAI/bge-m3
+    label: BAAI bge-m3(多语言)
+    dimensions: 1024
+  - id: Pro/BAAI/bge-large-zh-v1.5
+    label: bge-large-zh-v1.5(中文)
+    dimensions: 1024

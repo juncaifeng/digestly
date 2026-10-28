@@ -14,7 +14,7 @@ export function SettingsView() {
   const [notice, setNotice] = useState("")
 
   // LLM 配置表单(editing.id > 0 为编辑)
-  const emptyCfg = { name: "", base_url: "", api_key: "", model: "", temperature: 0.7, max_tokens: 4096 }
+  const emptyCfg = { name: "", kind: "chat" as "chat" | "embedding", base_url: "", api_key: "", model: "", temperature: 0.7, max_tokens: 4096 }
   const [form, setForm] = useState<typeof emptyCfg & { id?: number }>(emptyCfg)
   const [testing, setTesting] = useState(false)
 
@@ -59,7 +59,9 @@ export function SettingsView() {
       ...f,
       name: f.name || p.name,
       base_url: p.base_url,
-      model: p.models[0]?.id ?? f.model,
+      model: f.kind === "embedding"
+        ? (p.embeddings?.[0]?.id ?? f.model)
+        : (p.models[0]?.id ?? f.model),
     }))
   }
 
@@ -82,7 +84,7 @@ export function SettingsView() {
     setTesting(true)
     setError(""); setNotice("")
     try {
-      const r = await llmApi.test({ id: form.id, base_url: form.base_url, api_key: form.api_key, model: form.model })
+      const r = await llmApi.test({ id: form.id, kind: form.kind, base_url: form.base_url, api_key: form.api_key, model: form.model })
       setNotice(`连接成功,模型回复: ${r.reply}`)
     } catch (e) {
       setError(`连接失败: ${(e as Error).message}`)
@@ -269,6 +271,7 @@ export function SettingsView() {
               <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <CardTitle className="text-base truncate">{c.name}</CardTitle>
+                  {c.kind === "embedding" && <Badge variant="secondary">向量</Badge>}
                   {c.is_default && <Badge>默认</Badge>}
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -279,7 +282,7 @@ export function SettingsView() {
                     </Button>
                   )}
                   <Button variant="ghost" size="icon" className="size-7" title="编辑"
-                    onClick={() => setForm({ id: c.id, name: c.name, base_url: c.base_url, api_key: "", model: c.model, temperature: c.temperature, max_tokens: c.max_tokens })}>
+                    onClick={() => setForm({ id: c.id, name: c.name, kind: (c.kind === "embedding" ? "embedding" : "chat"), base_url: c.base_url, api_key: "", model: c.model, temperature: c.temperature, max_tokens: c.max_tokens })}>
                     <Pencil className="size-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="size-7" title="删除"
@@ -301,6 +304,14 @@ export function SettingsView() {
               <CardDescription>OpenAI 兼容接口;api_key 留空表示不修改已有密钥</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
+              <select
+                className="border rounded-md h-9 px-2 text-sm bg-transparent"
+                value={form.kind}
+                onChange={(e) => setForm({ ...form, kind: e.target.value as "chat" | "embedding", model: "" })}
+              >
+                <option value="chat">对话 / 生成(chat)</option>
+                <option value="embedding">向量模型(embedding)</option>
+              </select>
               {presets.length > 0 && (
                 <select
                   className="border rounded-md h-9 px-2 text-sm bg-transparent"
@@ -319,7 +330,19 @@ export function SettingsView() {
                 <Input placeholder="模型,如 deepseek-flash" value={form.model}
                   onChange={(e) => setForm({ ...form, model: e.target.value })} />
               </div>
-              {preset && preset.models.length > 0 && (
+              {form.kind === "embedding" && preset && (preset.embeddings?.length ?? 0) > 0 && (
+                <select
+                  className="border rounded-md h-9 px-2 text-sm bg-transparent"
+                  value={preset.embeddings!.some((m) => m.id === form.model) ? form.model : ""}
+                  onChange={(e) => e.target.value && setForm({ ...form, model: e.target.value })}
+                >
+                  <option value="">选择 {preset.name} 的向量模型…</option>
+                  {preset.embeddings!.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label || m.id}{m.dimensions ? ` · ${m.dimensions} 维` : ""}</option>
+                  ))}
+                </select>
+              )}
+              {form.kind === "chat" && preset && preset.models.length > 0 && (
                 <select
                   className="border rounded-md h-9 px-2 text-sm bg-transparent"
                   value={preset.models.some((m) => m.id === form.model) ? form.model : ""}
@@ -349,12 +372,14 @@ export function SettingsView() {
                 onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
               <Input placeholder="API Key" type="password" value={form.api_key}
                 onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="temperature,如 0.7" type="number" step="0.1" value={form.temperature}
-                  onChange={(e) => setForm({ ...form, temperature: parseFloat(e.target.value) || 0 })} />
-                <Input placeholder="max_tokens,如 4096" type="number" value={form.max_tokens}
-                  onChange={(e) => setForm({ ...form, max_tokens: parseInt(e.target.value, 10) || 0 })} />
-              </div>
+              {form.kind === "chat" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="temperature,如 0.7" type="number" step="0.1" value={form.temperature}
+                    onChange={(e) => setForm({ ...form, temperature: parseFloat(e.target.value) || 0 })} />
+                  <Input placeholder="max_tokens,如 4096" type="number" value={form.max_tokens}
+                    onChange={(e) => setForm({ ...form, max_tokens: parseInt(e.target.value, 10) || 0 })} />
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button size="sm" onClick={saveConfig}
                   disabled={!form.name.trim() || !form.base_url.trim() || !form.model.trim()}>

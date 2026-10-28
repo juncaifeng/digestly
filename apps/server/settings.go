@@ -80,8 +80,8 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 			writeErr(w, 400, err)
 			return
 		}
-		if strings.TrimSpace(c.Name) == "" || strings.TrimSpace(c.BaseURL) == "" || strings.TrimSpace(c.Model) == "" {
-			writeErr(w, 400, fmt.Errorf("name / base_url / model 必填"))
+		if err := validateLLMConfig(&c); err != nil {
+			writeErr(w, 400, err)
 			return
 		}
 		if err := st.AddLLMConfig(&c); err != nil {
@@ -100,8 +100,8 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 			return
 		}
 		c.ID = id
-		if strings.TrimSpace(c.Name) == "" || strings.TrimSpace(c.BaseURL) == "" || strings.TrimSpace(c.Model) == "" {
-			writeErr(w, 400, fmt.Errorf("name / base_url / model 必填"))
+		if err := validateLLMConfig(&c); err != nil {
+			writeErr(w, 400, err)
 			return
 		}
 		if err := st.UpdateLLMConfig(&c); err != nil {
@@ -133,6 +133,7 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 	r.Post("/llm/test", func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
 			ID          int64   `json:"id"`
+			Kind        string  `json:"kind"`
 			BaseURL     string  `json:"base_url"`
 			APIKey      string  `json:"api_key"`
 			Model       string  `json:"model"`
@@ -143,7 +144,7 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 			return
 		}
 		cfg := &model.LLMConfig{
-			BaseURL: body.BaseURL, APIKey: body.APIKey,
+			Kind: body.Kind, BaseURL: body.BaseURL, APIKey: body.APIKey,
 			Model: body.Model, Temperature: body.Temperature, MaxTokens: 16,
 		}
 		if body.ID > 0 {
@@ -156,6 +157,24 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 			if body.APIKey == "" || strings.HasPrefix(body.APIKey, "****") {
 				cfg.APIKey = saved.APIKey
 			}
+			if body.Kind == "" {
+				cfg.Kind = saved.Kind
+			}
+			if cfg.BaseURL == "" {
+				cfg.BaseURL = saved.BaseURL
+			}
+			if cfg.Model == "" {
+				cfg.Model = saved.Model
+			}
+		}
+		if cfg.Kind == "embedding" {
+			vecs, err := llm.Embed(req.Context(), cfg, []string{"ping"})
+			if err != nil {
+				writeErr(w, 502, err)
+				return
+			}
+			writeJSON(w, 200, map[string]string{"reply": fmt.Sprintf("连接成功,向量维度 %d", len(vecs[0]))})
+			return
 		}
 		reply, err := llm.Chat(req.Context(), cfg, "", "ping, reply with: pong")
 		if err != nil {
@@ -164,4 +183,19 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 		}
 		writeJSON(w, 200, map[string]string{"reply": reply})
 	})
+}
+
+// validateLLMConfig 校验并规范化(kind 空补 chat;两种 kind 都需要 base_url + model)。
+func validateLLMConfig(c *model.LLMConfig) error {
+	c.Kind = strings.TrimSpace(c.Kind)
+	if c.Kind == "" {
+		c.Kind = "chat"
+	}
+	if c.Kind != "chat" && c.Kind != "embedding" {
+		return fmt.Errorf("kind 只能是 chat 或 embedding")
+	}
+	if strings.TrimSpace(c.Name) == "" || strings.TrimSpace(c.BaseURL) == "" || strings.TrimSpace(c.Model) == "" {
+		return fmt.Errorf("name / base_url / model 必填")
+	}
+	return nil
 }

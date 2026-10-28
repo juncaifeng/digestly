@@ -92,6 +92,24 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	// 同样探测补 items.claimed_at(processing 认领时间,超时可回收)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('items') WHERE name='claimed_at'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.Exec(`ALTER TABLE items ADD COLUMN claimed_at DATETIME`); err != nil {
+			return err
+		}
+	}
+	// 同样探测补 llm_configs.kind(chat / embedding)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('llm_configs') WHERE name='kind'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.Exec(`ALTER TABLE llm_configs ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'`); err != nil {
+			return err
+		}
+	}
 	// 同样探测补 columns.template_id(专栏默认大纲模板)
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('columns') WHERE name='template_id'`).Scan(&n); err != nil {
 		return err

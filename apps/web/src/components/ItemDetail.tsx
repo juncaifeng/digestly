@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-const statusVariant: Record<ItemStatus, "default" | "secondary" | "destructive"> = {
+const statusVariant: Record<ItemStatus, "default" | "secondary" | "destructive" | "outline"> = {
   pending: "secondary",
+  processing: "outline",
   processed: "default",
   failed: "destructive",
 }

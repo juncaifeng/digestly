@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -32,9 +33,13 @@ func NewChain(st *store.Store, steps ...Enricher) *Chain {
 	return &Chain{steps: steps, store: st}
 }
 
-// RunOnce 处理一批 pending 文章，返回处理数。
+// claimTimeout processing 超时回收: 认领后超过此时长仍未出结果的视为处理端崩溃,重新认领。
+const claimTimeout = 30 * time.Minute
+
+// RunOnce 认领并处理一批 pending 文章，返回处理数。
+// 认领即置 processing(带认领时间),超时未完成的会被下一轮回收重试。
 func (c *Chain) RunOnce(limit int) (int, error) {
-	items, err := c.store.PendingItems(limit)
+	items, err := c.store.ClaimPending(limit, claimTimeout)
 	if err != nil {
 		return 0, err
 	}

@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/juncaifeng/digestly/core/compose"
+	"github.com/juncaifeng/digestly/core/llm"
 	"github.com/juncaifeng/digestly/core/model"
 	"github.com/juncaifeng/digestly/core/store"
 )
@@ -206,6 +207,69 @@ func registerTools(s *mcpsdk.Server, st *store.Store) {
 		}
 		return nil, toolOK(a), nil
 	})
+
+	// ---------- 实体图谱与相似检索 ----------
+	mcpsdk.AddTool(s, &mcpsdk.Tool{Name: "list_entities", Description: "列出知识图谱实体(名称/类型/提及文章数),可按关键词过滤;实体由标注管线自动抽取"}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in struct {
+		Query string `json:"query,omitempty" jsonschema:"实体名关键词过滤"`
+		Limit int    `json:"limit,omitempty" jsonschema:"返回条数上限,默认 50"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		es, err := st.ListEntities(in.Query, in.Limit)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, toolOK(map[string]any{"entities": es}), nil
+	})
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{Name: "similar_items", Description: "按文本或已有文章找语义相似文章(需配置向量模型 kind=embedding);传 text 现算向量,或传 item_id 用其向量"}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in struct {
+		ItemID int64  `json:"item_id,omitempty" jsonschema:"以该文章为锚找相似(与 text 二选一)"`
+		Text   string `json:"text,omitempty" jsonschema:"以该文本为锚找相似(与 item_id 二选一)"`
+		Limit  int    `json:"limit,omitempty" jsonschema:"返回条数上限,默认 10"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		limit := in.Limit
+		if limit <= 0 {
+			limit = 10
+		}
+		var modelName string
+		var vec []float32
+		switch {
+		case in.ItemID > 0:
+			m, v, ok, err := st.GetItemEmbedding(in.ItemID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !ok {
+				return nil, nil, fmt.Errorf("该文章还没有向量(配置向量模型后等待标注管线处理)")
+			}
+			modelName, vec = m, v
+		case in.Text != "":
+			cfg, err := st.DefaultConfigOfKind("embedding")
+			if err != nil {
+				return nil, nil, fmt.Errorf("还没有默认向量模型配置(kind=embedding)")
+			}
+			vecs, err := llm.Embed(ctx, cfg, []string{in.Text})
+			if err != nil {
+				return nil, nil, err
+			}
+			modelName, vec = cfg.Model, vecs[0]
+		default:
+			return nil, nil, fmt.Errorf("需要 item_id 或 text")
+		}
+		sims, err := st.SimilarItems(modelName, vec, limit+1)
+		if err != nil {
+			return nil, nil, err
+		}
+		out := make([]map[string]any, 0, limit)
+		for _, sm := range sims {
+			if sm.Item.ID == in.ItemID {
+				continue
+			}
+			out = append(out, toolOK(sm))
+			if len(out) >= limit {
+				break
+			}
+		}
+		return nil, map[string]any{"items": out}, nil
+	})
 }
 
 // ---- 输入结构 ----
@@ -229,7 +293,7 @@ type itemQuery struct {
 	FeedID     int64  `json:"feed_id,omitempty" jsonschema:"按订阅源 id 过滤"`
 	ColumnID   int64  `json:"column_id,omitempty" jsonschema:"按专栏 id 过滤(含订阅继承与手动收藏)"`
 	Tag        string `json:"tag,omitempty" jsonschema:"按标签过滤"`
-	Status     string `json:"status,omitempty" jsonschema:"标注状态: pending | processed | failed"`
+	Status     string `json:"status,omitempty" jsonschema:"标注状态: pending | processing | processed | failed"`
 	UnreadOnly bool   `json:"unread_only,omitempty" jsonschema:"只看未读"`
 	Archived   bool   `json:"archived,omitempty" jsonschema:"是否看归档箱: true=只看归档,默认只看未归档"`
 	Since      string `json:"since,omitempty" jsonschema:"起始时间: 2026-10-28 或 RFC3339"`

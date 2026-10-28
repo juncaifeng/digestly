@@ -43,6 +43,8 @@ func main() {
 	chain := pipeline.NewChain(st,
 		pipeline.Source{Rules: map[string]string{}},
 		pipeline.Summary{MaxRunes: 200},
+		pipeline.NewLLMSummary(st),
+		pipeline.NewLLMGraph(st),
 		pipeline.Keywords{TopN: 5},
 	)
 	mc := market.NewClient(filepath.Join(*dataDir, "market"))
@@ -72,6 +74,7 @@ func main() {
 		registerArticleRoutes(r, st)
 		registerCreationRoutes(r, st)
 		registerOPMLRoutes(r, st)
+		registerGraphRoutes(r, st)
 	})
 
 	// MCP 入口(与 web / CLI 并列的第三种入口): streamable HTTP,工具面与 digestly-cli 一致。

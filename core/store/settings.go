@@ -18,11 +18,11 @@ func maskAPIKey(key string) string {
 	return "****" + key[len(key)-4:]
 }
 
-const llmConfigCols = `id,name,base_url,api_key,model,temperature,max_tokens,is_default,created_at,updated_at`
+const llmConfigCols = `id,name,kind,base_url,api_key,model,temperature,max_tokens,is_default,created_at,updated_at`
 
 func scanLLMConfig(row interface{ Scan(...any) error }) (*model.LLMConfig, error) {
 	var c model.LLMConfig
-	if err := row.Scan(&c.ID, &c.Name, &c.BaseURL, &c.APIKey, &c.Model,
+	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &c.BaseURL, &c.APIKey, &c.Model,
 		&c.Temperature, &c.MaxTokens, &c.IsDefault, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -53,28 +53,36 @@ func (s *Store) GetLLMConfig(id int64) (*model.LLMConfig, error) {
 	return scanLLMConfig(s.db.QueryRow(`SELECT `+llmConfigCols+` FROM llm_configs WHERE id=?`, id))
 }
 
-// DefaultLLMConfig 取默认配置(含明文 api_key);无默认时返回 sql.ErrNoRows。
+// DefaultLLMConfig 取默认对话配置(kind=chat,含明文 api_key);无默认时返回 sql.ErrNoRows。
 func (s *Store) DefaultLLMConfig() (*model.LLMConfig, error) {
-	return scanLLMConfig(s.db.QueryRow(`SELECT `+llmConfigCols+` FROM llm_configs WHERE is_default=1 ORDER BY id LIMIT 1`))
+	return s.DefaultConfigOfKind("chat")
 }
 
-// AddLLMConfig 新增配置;首个配置自动设为默认,显式 is_default 时清掉旧默认。
+// DefaultConfigOfKind 取指定 kind 的默认配置(同 kind 内 is_default 唯一)。
+func (s *Store) DefaultConfigOfKind(kind string) (*model.LLMConfig, error) {
+	return scanLLMConfig(s.db.QueryRow(`SELECT `+llmConfigCols+` FROM llm_configs WHERE is_default=1 AND kind=? ORDER BY id LIMIT 1`, kind))
+}
+
+// AddLLMConfig 新增配置;每个 kind 的首个配置自动设为默认,显式 is_default 时清掉同 kind 旧默认。
 func (s *Store) AddLLMConfig(c *model.LLMConfig) error {
+	if c.Kind == "" {
+		c.Kind = "chat"
+	}
 	var count int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM llm_configs`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM llm_configs WHERE kind=?`, c.Kind).Scan(&count); err != nil {
 		return err
 	}
 	if count == 0 {
 		c.IsDefault = true
 	}
 	if c.IsDefault {
-		if _, err := s.db.Exec(`UPDATE llm_configs SET is_default=0`); err != nil {
+		if _, err := s.db.Exec(`UPDATE llm_configs SET is_default=0 WHERE kind=?`, c.Kind); err != nil {
 			return err
 		}
 	}
-	res, err := s.db.Exec(`INSERT INTO llm_configs(name,base_url,api_key,model,temperature,max_tokens,is_default)
-		VALUES(?,?,?,?,?,?,?)`,
-		c.Name, strings.TrimSpace(c.BaseURL), c.APIKey, c.Model, c.Temperature, c.MaxTokens, c.IsDefault)
+	res, err := s.db.Exec(`INSERT INTO llm_configs(name,kind,base_url,api_key,model,temperature,max_tokens,is_default)
+		VALUES(?,?,?,?,?,?,?,?)`,
+		c.Name, c.Kind, strings.TrimSpace(c.BaseURL), c.APIKey, c.Model, c.Temperature, c.MaxTokens, c.IsDefault)
 	if err != nil {
 		return err
 	}
@@ -84,13 +92,16 @@ func (s *Store) AddLLMConfig(c *model.LLMConfig) error {
 
 // UpdateLLMConfig 更新配置;APIKey 为空串表示不修改原密钥。
 func (s *Store) UpdateLLMConfig(c *model.LLMConfig) error {
+	if c.Kind == "" {
+		c.Kind = "chat"
+	}
 	if c.IsDefault {
-		if _, err := s.db.Exec(`UPDATE llm_configs SET is_default=0 WHERE id!=?`, c.ID); err != nil {
+		if _, err := s.db.Exec(`UPDATE llm_configs SET is_default=0 WHERE id!=? AND kind=?`, c.ID, c.Kind); err != nil {
 			return err
 		}
 	}
-	q := `UPDATE llm_configs SET name=?,base_url=?,model=?,temperature=?,max_tokens=?,is_default=?,updated_at=CURRENT_TIMESTAMP`
-	args := []any{c.Name, strings.TrimSpace(c.BaseURL), c.Model, c.Temperature, c.MaxTokens, c.IsDefault}
+	q := `UPDATE llm_configs SET name=?,kind=?,base_url=?,model=?,temperature=?,max_tokens=?,is_default=?,updated_at=CURRENT_TIMESTAMP`
+	args := []any{c.Name, c.Kind, strings.TrimSpace(c.BaseURL), c.Model, c.Temperature, c.MaxTokens, c.IsDefault}
 	if c.APIKey != "" {
 		q += `,api_key=?`
 		args = append(args, c.APIKey)
@@ -114,8 +125,16 @@ func (s *Store) DeleteLLMConfig(id int64) error {
 }
 
 // SetDefaultLLMConfig 指定默认配置(同时清掉其他默认)。
+// SetDefaultLLMConfig 指定默认配置(只清同 kind 的其他默认,chat 与 embedding 各一个默认)。
 func (s *Store) SetDefaultLLMConfig(id int64) error {
-	if _, err := s.db.Exec(`UPDATE llm_configs SET is_default=0`); err != nil {
+	var kind string
+	if err := s.db.QueryRow(`SELECT kind FROM llm_configs WHERE id=?`, id).Scan(&kind); err != nil {
+		if err == sql.ErrNoRows {
+			return sql.ErrNoRows
+		}
+		return err
+	}
+	if _, err := s.db.Exec(`UPDATE llm_configs SET is_default=0 WHERE kind=?`, kind); err != nil {
 		return err
 	}
 	res, err := s.db.Exec(`UPDATE llm_configs SET is_default=1, updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)

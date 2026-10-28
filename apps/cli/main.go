@@ -46,7 +46,7 @@ func main() {
 		tag     = flag.String("tag", "", "按标签筛选")
 		feedS   = flag.String("feed", "", "按订阅源筛选(id 或名称)")
 		columnS = flag.String("column", "", "按专栏筛选(id 或名称);含订阅继承与手动收藏")
-		statusS = flag.String("status", "", "按标注状态筛选: pending | processed | failed")
+		statusS = flag.String("status", "", "按标注状态筛选: pending | processing | processed | failed")
 		unread  = flag.Bool("unread", false, "只看未读")
 		limit   = flag.Int("limit", 20, "返回条数上限")
 		offset  = flag.Int("offset", 0, "分页偏移")
@@ -166,6 +166,8 @@ func main() {
 		chain := pipeline.NewChain(st,
 			pipeline.Source{Rules: map[string]string{}},
 			pipeline.Summary{MaxRunes: 200},
+			pipeline.NewLLMSummary(st),
+			pipeline.NewLLMGraph(st),
 			pipeline.Keywords{TopN: 5},
 		)
 		if *id > 0 {
@@ -212,6 +214,8 @@ func main() {
 		chain := pipeline.NewChain(w,
 			pipeline.Source{Rules: map[string]string{}},
 			pipeline.Summary{MaxRunes: 200},
+			pipeline.NewLLMSummary(w),
+			pipeline.NewLLMGraph(w),
 			pipeline.Keywords{TopN: 5},
 		)
 		done := 0

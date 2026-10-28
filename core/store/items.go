@@ -258,10 +258,10 @@ func (s *Store) GetItem(id int64) (*model.Item, error) {
 	return &it, nil
 }
 
-// SetEnrichment 标注管线回写：摘要/关键词/来源 + 状态推进。
+// SetEnrichment 标注管线回写：摘要/关键词/来源 + 状态推进(同时清除认领标记)。
 func (s *Store) SetEnrichment(id int64, summary, keywords, source string, status model.ItemStatus) error {
 	if _, err := s.db.Exec(
-		`UPDATE items SET summary=?,keywords=?,source=?,status=? WHERE id=?`,
+		`UPDATE items SET summary=?,keywords=?,source=?,status=?,claimed_at=NULL WHERE id=?`,
 		summary, keywords, source, status, id); err != nil {
 		return err
 	}
@@ -276,9 +276,9 @@ func (s *Store) SetEnrichment(id int64, summary, keywords, source string, status
 
 // ResetEnrichment 把已标注文章退回 pending(管线升级后重跑用),返回重置条数。
 func (s *Store) ResetEnrichment(all bool) (int, error) {
-	q := `UPDATE items SET status='pending',summary='',keywords='',source='' WHERE status='processed'`
+	q := `UPDATE items SET status='pending',summary='',keywords='',source='',claimed_at=NULL WHERE status='processed'`
 	if all {
-		q = `UPDATE items SET status='pending',summary='',keywords='',source='' WHERE status!='pending'`
+		q = `UPDATE items SET status='pending',summary='',keywords='',source='',claimed_at=NULL WHERE status!='pending'`
 	}
 	res, err := s.db.Exec(q)
 	if err != nil {
@@ -300,7 +300,7 @@ func (s *Store) ResetEnrichment(all bool) (int, error) {
 // RetryFailed 把标注失败的文章退回 pending(已归档的除外),返回重置条数。
 func (s *Store) RetryFailed() (int, error) {
 	res, err := s.db.Exec(
-		`UPDATE items SET status='pending',summary='',keywords='',source='' WHERE status='failed' AND archived=0`)
+		`UPDATE items SET status='pending',summary='',keywords='',source='',claimed_at=NULL WHERE status='failed' AND archived=0`)
 	if err != nil {
 		return 0, err
 	}
@@ -320,7 +320,7 @@ func (s *Store) RetryFailed() (int, error) {
 // RetryItem 把单篇退回 pending(单篇重跑标注用)。文章不存在时返回 sql.ErrNoRows。
 func (s *Store) RetryItem(id int64) error {
 	res, err := s.db.Exec(
-		`UPDATE items SET status='pending',summary='',keywords='',source='' WHERE id=?`, id)
+		`UPDATE items SET status='pending',summary='',keywords='',source='',claimed_at=NULL WHERE id=?`, id)
 	if err != nil {
 		return err
 	}
@@ -354,6 +354,38 @@ func (s *Store) PendingItems(limit int) ([]model.Item, error) {
 			&it.PublishedAt, &it.Status, &it.Read, &it.Archived, &it.CreatedAt); err != nil {
 			return nil, err
 		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// ClaimPending 认领一批待处理文章并置为 processing(带 claimed_at 时间戳):
+// 取 status=pending,以及 status=processing 但认领超时(疑似处理端崩溃)的。
+// 返回认领到的文章;调用方处理完用 SetEnrichment 落终态(会清认领标记)。
+func (s *Store) ClaimPending(limit int, staleAfter time.Duration) ([]model.Item, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	cutoff := time.Now().Add(-staleAfter)
+	rows, err := s.db.Query(`UPDATE items SET status=?, claimed_at=CURRENT_TIMESTAMP
+		WHERE id IN (SELECT id FROM items WHERE archived=0 AND (status=? OR (status=? AND (claimed_at IS NULL OR claimed_at < ?)))
+			ORDER BY id LIMIT ?)
+		RETURNING id,feed_id,guid,title,link,author,content,
+		summary,keywords,source,published_at,status,read,archived,created_at`,
+		model.StatusProcessing, model.StatusPending, model.StatusProcessing, cutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Item{}
+	for rows.Next() {
+		var it model.Item
+		if err := rows.Scan(&it.ID, &it.FeedID, &it.GUID, &it.Title, &it.Link,
+			&it.Author, &it.Content, &it.Summary, &it.Keywords, &it.Source,
+			&it.PublishedAt, &it.Status, &it.Read, &it.Archived, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		s.index.update(it.ID, func(m *itemMeta) { m.item.Status = model.StatusProcessing })
 		out = append(out, it)
 	}
 	return out, rows.Err()

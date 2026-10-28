@@ -12,11 +12,20 @@ import (
 
 // ProviderPreset 一个 LLM 供应商预设(schema 见 providers/deepseek.yml 头注释)。
 type ProviderPreset struct {
-	Name    string         `json:"name" yaml:"name"`
-	BaseURL string         `json:"base_url" yaml:"base_url"`
-	Docs    string         `json:"docs" yaml:"docs"`
-	Note    string         `json:"note" yaml:"note"`
-	Models  []ModelPreset  `json:"models" yaml:"models"`
+	Name       string            `json:"name" yaml:"name"`
+	BaseURL    string            `json:"base_url" yaml:"base_url"`
+	Docs       string            `json:"docs" yaml:"docs"`
+	Note       string            `json:"note" yaml:"note"`
+	Models     []ModelPreset     `json:"models" yaml:"models"`
+	Embeddings []EmbeddingPreset `json:"embeddings" yaml:"embeddings"` // 可选向量模型(kind=embedding 用)
+}
+
+// EmbeddingPreset 供应商的一个可选向量模型。
+type EmbeddingPreset struct {
+	ID         string `json:"id" yaml:"id"`
+	Label      string `json:"label" yaml:"label"`
+	Dimensions int    `json:"dimensions" yaml:"dimensions"`
+	Pricing    string `json:"pricing" yaml:"pricing"`
 }
 
 // ModelPreset 供应商的一个可选模型。
