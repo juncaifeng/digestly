@@ -219,6 +219,33 @@ export interface ProviderPreset {
   models: ModelPreset[]
 }
 
+// MCP 入口地址(与 web 同一 server 的 /mcp; dev 下 vite 只代理 /api,故用绝对地址)
+export const mcpUrl = () => `http://127.0.0.1:${(window as any).__DIGESTLY_PORT__ ?? 3210}/mcp`
+
+export const mcpApi = {
+  url: mcpUrl,
+  // 探测 MCP 服务状态: initialize + tools/list
+  status: async () => {
+    const url = mcpUrl()
+    const rpc = async (id: number, method: string, params: unknown = {}) => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return res.json()
+    }
+    const init = await rpc(1, "initialize", {
+      protocolVersion: "2025-06-18", capabilities: {},
+      clientInfo: { name: "digestly-web", version: "0" },
+    })
+    const list = await rpc(2, "tools/list")
+    const tools: string[] = (list.result?.tools ?? []).map((t: { name: string }) => t.name)
+    return { protocol: (init.result?.protocolVersion ?? "") as string, tools }
+  },
+}
+
 export const llmApi = {
   presets: () => req<ProviderPreset[]>("/llm/presets"),
   list: () => req<LLMConfig[]>("/llm/configs"),

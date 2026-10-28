@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { Check, Cpu, Pencil, Plus, Star, Trash2, Zap } from "lucide-react"
+import { Check, Copy, Cpu, Pencil, Plus, RefreshCw, Star, Trash2, Zap } from "lucide-react"
 
-import { llmApi, type LLMConfig, type ProviderPreset } from "@/api/client"
+import { llmApi, mcpApi, type LLMConfig, type ProviderPreset } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,6 +21,22 @@ export function SettingsView() {
   // 供应商预设(内置 YAML + data/llm_providers 用户覆盖)
   const [presets, setPresets] = useState<ProviderPreset[]>([])
   const [presetName, setPresetName] = useState("")
+
+  // MCP 服务状态
+  const [mcpState, setMcpState] = useState<{
+    status: "checking" | "ok" | "error"
+    tools: string[]
+    protocol: string
+    error: string
+  }>({ status: "checking", tools: [], protocol: "", error: "" })
+
+  const checkMcp = () => {
+    setMcpState((s) => ({ ...s, status: "checking", error: "" }))
+    mcpApi.status()
+      .then((r) => setMcpState({ status: "ok", tools: r.tools, protocol: r.protocol, error: "" }))
+      .catch((e) => setMcpState({ status: "error", tools: [], protocol: "", error: (e as Error).message }))
+  }
+  useEffect(() => { checkMcp() }, [])
 
   const load = () => {
     llmApi.list().then(setConfigs).catch((e) => setError(`LLM 配置加载失败: ${e.message}`))
@@ -71,11 +87,74 @@ export function SettingsView() {
     }
   }
 
+  const copyMcpUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpApi.url())
+      setNotice("已复制 MCP 连接地址")
+    } catch {
+      setError("复制失败,请手动选中地址复制")
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-3xl flex flex-col gap-6">
         {error && <p className="text-sm text-destructive">{error}</p>}
         {notice && <p className="text-sm text-green-600">{notice}</p>}
+
+        {/* MCP 服务 */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <Zap className="size-5" /> MCP 服务
+            <span className="ml-auto">
+              {mcpState.status === "ok" ? (
+                <Badge>正常 · {mcpState.tools.length} 个工具</Badge>
+              ) : mcpState.status === "checking" ? (
+                <Badge variant="secondary">检测中…</Badge>
+              ) : (
+                <Badge variant="destructive">不可用</Badge>
+              )}
+            </span>
+          </h2>
+          <Card>
+            <CardContent className="flex flex-col gap-2 pt-4">
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-sm border rounded-md px-2 py-1.5 bg-muted/40 truncate">
+                  {mcpApi.url()}
+                </code>
+                <Button size="sm" variant="outline" onClick={copyMcpUrl} title="复制连接地址">
+                  <Copy className="size-3.5" /> 复制
+                </Button>
+                <Button size="sm" variant="ghost" onClick={checkMcp} disabled={mcpState.status === "checking"}
+                  title="重新检测">
+                  <RefreshCw className={"size-3.5 " + (mcpState.status === "checking" ? "animate-spin" : "")} />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                MCP 客户端(Claude Code / Kimi Code / Cursor 等)把该地址添加为 MCP server,
+                即可直接调用 digestly 的查询 / 阅读 / 创作工具(与 digestly-cli 同一套工具面)。
+                {mcpState.protocol && ` 协议版本: ${mcpState.protocol}`}
+              </p>
+              {mcpState.status === "error" && (
+                <p className="text-xs text-destructive">
+                  探测失败: {mcpState.error}(确认 digestly 桌面端/服务在运行)
+                </p>
+              )}
+              {mcpState.status === "ok" && mcpState.tools.length > 0 && (
+                <details>
+                  <summary className="text-xs text-muted-foreground cursor-pointer">
+                    工具清单({mcpState.tools.length})
+                  </summary>
+                  <div className="flex flex-wrap gap-1 pt-2">
+                    {mcpState.tools.map((t) => (
+                      <Badge key={t} variant="secondary" className="font-mono text-xs">{t}</Badge>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </CardContent>
+          </Card>
+        </section>
 
         {/* LLM 配置 */}
         <section className="flex flex-col gap-3">
