@@ -48,7 +48,7 @@ func (g *LLMGraph) Enrich(it *model.Item) error {
 	cfg, err := g.st.PipelineConfigOfKind("chat")
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil
+			return Skip("未配置 chat 模型,跳过实体/关系抽取")
 		}
 		return err
 	}
@@ -62,7 +62,7 @@ func (g *LLMGraph) Enrich(it *model.Item) error {
 	}
 	body := it.Title + "\n\n" + text
 	if strings.TrimSpace(body) == "" {
-		return nil
+		return Skip("正文为空,跳过实体/关系抽取")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

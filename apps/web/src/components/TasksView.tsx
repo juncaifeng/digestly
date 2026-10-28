@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, CheckCircle2, Clock, ListChecks, Play, RefreshCw, RotateCcw, Zap } from "lucide-react"
 
-import { api, pipelineApi, type Item, type ItemStatus, type PipelineStatus } from "@/api/client"
+import { api, pipelineApi, type Item, type ItemStatus, type PipelineLog, type PipelineStatus } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,6 +23,19 @@ export function TasksView() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  // 单任务展开: 管线运行日志
+  const [openId, setOpenId] = useState<number | null>(null)
+  const [logs, setLogs] = useState<PipelineLog[]>([])
+
+  const openLogs = (id: number) => {
+    if (openId === id) {
+      setOpenId(null)
+      return
+    }
+    setOpenId(id)
+    setLogs([])
+    api.getPipelineLogs(id).then(setLogs).catch(() => setLogs([]))
+  }
 
   const loadStatus = () => {
     pipelineApi.status().then(setSt).catch((e) => setError(`状态加载失败: ${e.message}`))
@@ -156,19 +169,59 @@ export function TasksView() {
               <p className="text-sm text-muted-foreground text-center py-4">没有文章</p>
             )}
             {items.map((it) => (
-              <div key={it.id} className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-accent/50">
-                <Badge variant={statusVariant[it.status]} className="shrink-0">{it.status}</Badge>
-                <span className="text-sm truncate flex-1">{it.title || "(无标题)"}</span>
-                <span className="text-xs text-muted-foreground shrink-0">{it.source || "-"}</span>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {it.published_at ? new Date(it.published_at).toLocaleDateString() : ""}
-                </span>
-                {it.status === "failed" && (
-                  <Button size="sm" variant="ghost" className="h-6 px-2 shrink-0"
-                    title="退回待处理并重跑单篇"
-                    onClick={() => api.retryItem(it.id).then(() => { loadStatus(); loadItems() }).catch((e) => setError((e as Error).message))}>
-                    <RotateCcw className="size-3" /> 重试
-                  </Button>
+              <div key={it.id} className="flex flex-col">
+                <div
+                  className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-accent/50 cursor-pointer"
+                  title="点击查看管线运行日志"
+                  onClick={() => openLogs(it.id)}
+                >
+                  <Badge variant={statusVariant[it.status]} className="shrink-0">{it.status}</Badge>
+                  <span className="text-sm truncate flex-1">{it.title || "(无标题)"}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{it.source || "-"}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {it.published_at ? new Date(it.published_at).toLocaleDateString() : ""}
+                  </span>
+                  {it.status === "failed" && (
+                    <Button size="sm" variant="ghost" className="h-6 px-2 shrink-0"
+                      title="退回待处理并重跑单篇"
+                      onClick={(e) => { e.stopPropagation(); api.retryItem(it.id).then(() => { loadStatus(); loadItems() }).catch((e2) => setError((e2 as Error).message)) }}>
+                      <RotateCcw className="size-3" /> 重试
+                    </Button>
+                  )}
+                </div>
+                {openId === it.id && (
+                  <div className="border rounded-md mx-1 mb-2 p-2 flex flex-col gap-1 bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">管线运行日志</span>
+                      <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs"
+                        onClick={() => api.getPipelineLogs(it.id).then(setLogs).catch(() => {})}>
+                        <RefreshCw className="size-3" /> 刷新
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs"
+                        onClick={() => api.retryItem(it.id).then(() => { loadStatus(); loadItems(); return api.getPipelineLogs(it.id) }).then(setLogs).catch((e2) => setError((e2 as Error).message))}>
+                        <RotateCcw className="size-3" /> 重跑本篇
+                      </Button>
+                    </div>
+                    {logs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-1">
+                        还没有管线日志 — 该篇未跑过新版管线;点「重跑本篇」生成日志与摘要/切块/实体
+                      </p>
+                    ) : (
+                      logs.map((l) => (
+                        <div key={l.id} className="flex items-start gap-2 px-1 text-xs">
+                          <span className="text-muted-foreground shrink-0 w-32">
+                            {new Date(l.created_at).toLocaleString()}
+                          </span>
+                          <Badge variant="outline" className="font-mono shrink-0">{l.step}</Badge>
+                          <Badge variant={l.status === "failed" ? "destructive" : l.status === "skipped" ? "secondary" : "default"} className="shrink-0">
+                            {l.status}
+                          </Badge>
+                          <span className="text-muted-foreground shrink-0">{l.duration_ms}ms</span>
+                          <span className="flex-1 whitespace-pre-wrap">{l.message}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 )}
               </div>
             ))}

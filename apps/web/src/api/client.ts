@@ -16,6 +16,17 @@ export interface Feed {
 
 export type ItemStatus = "pending" | "processing" | "processed" | "failed"
 
+// 管线单步骤执行记录(单篇任务的运行日志)
+export interface PipelineLog {
+  id: number
+  item_id: number
+  step: string
+  status: "ok" | "failed" | "skipped"
+  duration_ms: number
+  message: string
+  created_at: string
+}
+
 // 文章滑动窗口分块(总摘要在 Item.summary,块摘要在 chunks)
 export interface ItemChunk {
   id: number
@@ -83,6 +94,7 @@ export const api = {
   },
   getItem: (id: number) => req<Item>(`/items/${id}`),
   getItemChunks: (id: number) => req<ItemChunk[]>(`/items/${id}/chunks`),
+  getPipelineLogs: (id: number) => req<PipelineLog[]>(`/items/${id}/pipeline-logs`),
   markRead: (id: number, read: boolean) =>
     req<void>(`/items/${id}/read`, { method: "POST", body: JSON.stringify({ read }) }),
   archiveItem: (id: number, archived: boolean) =>

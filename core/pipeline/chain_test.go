@@ -77,3 +77,30 @@ func TestRunOneFailedStep(t *testing.T) {
 		t.Fatalf("落库状态应为 failed,得到 %s", it.Status)
 	}
 }
+
+// skipper 返回跳过(不算失败),验证 skip 记入日志且不中断。
+type skipper struct{}
+
+func (skipper) Name() string                 { return "skipper" }
+func (skipper) Enrich(*model.Item) error     { return pipeline.Skip("无配置,跳过") }
+
+func TestPipelineLogsRecorded(t *testing.T) {
+	st, _, itemID := setup(t)
+	chain := pipeline.NewChain(st, skipper{}, boom{}, pipeline.Summary{MaxRunes: 50})
+	// RunOne 只在取不到文章时报错;boom 失败由状态体现
+	_, _ = chain.RunOne(itemID)
+	logs, err := st.PipelineLogs(itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("logs = %+v, want 2(skipper + boom)", logs)
+	}
+	// 新→旧: [boom failed, skipper skipped]
+	if logs[0].Step != "boom" || logs[0].Status != "failed" {
+		t.Fatalf("logs[0] = %+v", logs[0])
+	}
+	if logs[1].Step != "skipper" || logs[1].Status != "skipped" || logs[1].Message != "无配置,跳过" {
+		t.Fatalf("logs[1] = %+v", logs[1])
+	}
+}

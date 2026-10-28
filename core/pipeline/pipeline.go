@@ -4,6 +4,7 @@
 package pipeline
 
 import (
+	"errors"
 	"log"
 	"net/url"
 	"regexp"
@@ -76,12 +77,31 @@ func (c *Chain) RunOne(id int64) (model.ItemStatus, error) {
 	return status, nil
 }
 
+// Skip 返回一个「跳过」结果: 不算失败、不中断后续步骤,但会记入管线日志。
+// 用于「未配置 chat 模型」这类可解释的不执行。
+func Skip(reason string) error { return &skipError{reason} }
+
+type skipError struct{ reason string }
+
+func (e *skipError) Error() string { return e.reason }
+
 // enrich 顺序执行标注步骤,全部成功为 processed,任一失败为 failed(已执行的步骤结果保留)。
+// 每步执行(含跳过)都会写 pipeline_logs,供任务页查看单篇运行日志。
 func (c *Chain) enrich(it *model.Item) model.ItemStatus {
 	for _, step := range c.steps {
-		if err := step.Enrich(it); err != nil {
+		start := time.Now()
+		err := step.Enrich(it)
+		dur := time.Since(start).Milliseconds()
+		var se *skipError
+		switch {
+		case errors.As(err, &se):
+			_ = c.store.AddPipelineLog(it.ID, step.Name(), "skipped", dur, se.reason)
+		case err != nil:
 			log.Printf("pipeline %s item %d: %v", step.Name(), it.ID, err)
+			_ = c.store.AddPipelineLog(it.ID, step.Name(), "failed", dur, err.Error())
 			return model.StatusFailed
+		default:
+			_ = c.store.AddPipelineLog(it.ID, step.Name(), "ok", dur, "")
 		}
 	}
 	return model.StatusProcessed

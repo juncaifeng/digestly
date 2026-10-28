@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS item_chunks (
   summary TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_item_chunks_item ON item_chunks(item_id, idx);
+-- 管线执行日志: 每篇每步骤一行(ok/failed/skipped + 耗时 + 原因)
+CREATE TABLE IF NOT EXISTS pipeline_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  step        TEXT NOT NULL,
+  status      TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  message     TEXT NOT NULL DEFAULT '',
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pipeline_logs_item ON pipeline_logs(item_id, id);
 -- 知识图谱: 实体(全局归一) / 实体提及 / 实体关系(三元组,带出处)
 CREATE TABLE IF NOT EXISTS entities (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

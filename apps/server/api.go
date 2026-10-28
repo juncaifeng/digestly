@@ -161,6 +161,16 @@ func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 		}
 		writeJSON(w, 200, chunks)
 	})
+	// 单篇的管线运行日志(每步骤执行记录,含历次重跑,新→旧)
+	r.Get("/items/{id}/pipeline-logs", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+		logs, err := st.PipelineLogs(id)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, logs)
+	})
 	r.Post("/items/{id}/read", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {

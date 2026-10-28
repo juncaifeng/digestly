@@ -33,13 +33,13 @@ func (s *LLMSummary) Enrich(it *model.Item) error {
 	cfg, err := s.st.PipelineConfigOfKind("chat")
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil // 无 chat 配置: 跳过,保留规则摘要
+			return Skip("未配置 chat 模型,跳过滑窗摘要(保留规则摘要)")
 		}
 		return err
 	}
 	text := strings.TrimSpace(stripHTML(it.Content))
 	if text == "" {
-		return nil
+		return Skip("正文为空,跳过滑窗摘要")
 	}
 	window, overlap, maxChunk := s.Window, s.Overlap, s.MaxChunk
 	if window <= 0 {
