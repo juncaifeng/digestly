@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { Check, Copy, Cpu, Pencil, Plus, RefreshCw, Star, Trash2, Zap } from "lucide-react"
+import { Check, Copy, Cpu, Download, Pencil, Plus, RefreshCw, Star, Trash2, Zap } from "lucide-react"
 
-import { llmApi, mcpApi, type LLMConfig, type ProviderPreset } from "@/api/client"
+import { llmApi, mcpApi, opmlApi, type LLMConfig, type ProviderPreset } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -96,6 +96,35 @@ export function SettingsView() {
     }
   }
 
+  // OPML 导出: 下载为文件
+  const exportOpml = async () => {
+    setError(""); setNotice("")
+    try {
+      const text = await opmlApi.export()
+      const blob = new Blob([text], { type: "text/x-opml" })
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = "digestly-subscriptions.opml"
+      a.click()
+      URL.revokeObjectURL(a.href)
+      setNotice("已导出 OPML 文件")
+    } catch (e) {
+      setError(`导出失败: ${(e as Error).message}`)
+    }
+  }
+
+  // OPML 导入: 选文件 -> 提交文本 -> 汇报结果
+  const importOpml = async (file: File) => {
+    setError(""); setNotice("")
+    try {
+      const text = await file.text()
+      const r = await opmlApi.import(text)
+      setNotice(`导入完成: 新增 ${r.added} 个订阅,跳过已订阅 ${r.skipped} 个,新建专栏 ${r.columns_created} 个(共解析 ${r.total} 条)`)
+    } catch (e) {
+      setError(`导入失败: ${(e as Error).message}`)
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-3xl flex flex-col gap-6">
@@ -152,6 +181,41 @@ export function SettingsView() {
                   </div>
                 </details>
               )}
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* 订阅导入导出(OPML) */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <RefreshCw className="size-5" /> 订阅导入导出(OPML)
+          </h2>
+          <Card>
+            <CardContent className="flex flex-col gap-2 pt-4">
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={exportOpml}>
+                  <Download className="size-3.5" /> 导出 OPML(备份 / 迁移)
+                </Button>
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    accept=".opml,.xml,text/x-opml,application/xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void importOpml(f)
+                      e.target.value = ""
+                    }}
+                  />
+                  <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-sm font-medium cursor-pointer hover:bg-accent">
+                    <Plus className="size-3.5" /> 导入 OPML 文件
+                  </span>
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                导出: 全部订阅源按专栏分组生成 OPML,可备份或迁移到其他阅读器。
+                导入: OPML 里的分组映射为专栏(不存在自动创建),已订阅的源(按 URL)自动跳过。
+              </p>
             </CardContent>
           </Card>
         </section>

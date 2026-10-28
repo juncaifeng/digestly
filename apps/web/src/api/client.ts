@@ -246,6 +246,21 @@ export const mcpApi = {
   },
 }
 
+export const opmlApi = {
+  // 导出全部订阅(按专栏分组)为 OPML 文本
+  export: async (): Promise<string> => {
+    const res = await fetch(`${BASE}/api/opml/export`)
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`)
+    return res.text()
+  },
+  // 导入 OPML 文本: 分组映射为专栏(不存在则建),按 URL 去重
+  import: (opml: string) =>
+    req<{ added: number; skipped: number; columns_created: number; total: number }>("/opml/import", {
+      method: "POST",
+      body: JSON.stringify({ opml }),
+    }),
+}
+
 export const llmApi = {
   presets: () => req<ProviderPreset[]>("/llm/presets"),
   list: () => req<LLMConfig[]>("/llm/configs"),

@@ -71,6 +71,7 @@ func main() {
 		registerSettingsRoutes(r, st, *dataDir)
 		registerArticleRoutes(r, st)
 		registerCreationRoutes(r, st)
+		registerOPMLRoutes(r, st)
 	})
 
 	// MCP 入口(与 web / CLI 并列的第三种入口): streamable HTTP,工具面与 digestly-cli 一致。
