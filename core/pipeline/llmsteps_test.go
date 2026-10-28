@@ -48,3 +48,21 @@ func TestParseChunkResult(t *testing.T) {
 		t.Fatalf("fenced sum=%q ents=%v", sum, ents)
 	}
 }
+
+func TestParseExtract(t *testing.T) {
+	res, ok := parseExtract(`{"entities":[{"name":"OpenAI","type":"组织"}],"relations":[{"subject":"OpenAI","predicate":"发布","object":"GPT","confidence":0.9}]}`)
+	if !ok || len(res.Entities) != 1 || len(res.Relations) != 1 {
+		t.Fatalf("res=%+v ok=%v", res, ok)
+	}
+	if _, ok := parseExtract(""); ok {
+		t.Fatal("empty should not parse")
+	}
+	if _, ok := parseExtract("随便说点什么"); ok {
+		t.Fatal("garbage should not parse")
+	}
+	// 围栏 + 前后杂文字
+	res, ok = parseExtract("结果如下:\n```json\n{\"entities\":[],\"relations\":[]}\n``` 完")
+	if !ok || res.Entities == nil || res.Relations == nil {
+		t.Fatalf("fenced res=%+v ok=%v", res, ok)
+	}
+}

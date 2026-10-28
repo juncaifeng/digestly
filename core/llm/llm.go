@@ -87,7 +87,11 @@ func Chat(ctx context.Context, cfg *model.LLMConfig, system, user string) (strin
 	if len(out.Choices) == 0 {
 		return "", fmt.Errorf("LLM 未返回任何内容")
 	}
-	return strings.TrimSpace(out.Choices[0].Message.Content), nil
+	content := strings.TrimSpace(out.Choices[0].Message.Content)
+	if content == "" {
+		return "", fmt.Errorf("LLM 返回空内容(思考型模型可能把 max_tokens 配额耗在思考上;可提高该配置的 max_tokens 或换非思考模型)")
+	}
+	return content, nil
 }
 
 func truncate(s string, n int) string {

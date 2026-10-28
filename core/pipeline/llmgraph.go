@@ -68,20 +68,31 @@ func (g *LLMGraph) Enrich(it *model.Item) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	raw, err := llm.Chat(ctx, cfg, "你是信息抽取引擎。",
-		fmt.Sprintf(`从以下内容抽取实体与实体关系,只输出 JSON(不要其他文字),格式:
-{"entities":[{"name":"实体名","type":"人|组织|产品|项目|技术|其他"}],
- "relations":[{"subject":"实体名","predicate":"关系短语","object":"实体名","confidence":0.9}]}
-实体名用原文常见称呼;关系主客体必须在 entities 里出现;没有则输出空数组。
+	prompt := fmt.Sprintf(`从以下内容抽取实体与实体关系,只输出紧凑 JSON 单行(不要任何其他文字/解释),格式:
+{"entities":[{"name":"实体名","type":"人|组织|产品|项目|技术|其他"}],"relations":[{"subject":"实体名","predicate":"关系短语","object":"实体名","confidence":0.9}]}
+实体至多 20 个(取最重要的),关系至多 15 条;实体名用原文常见称呼;关系主客体必须在 entities 里出现;没有则输出 {"entities":[],"relations":[]}。
 
 内容:
-%s`, body))
+%s`, body)
+	raw, err := llm.Chat(ctx, cfg, "你是信息抽取引擎,只输出 JSON。", prompt)
 	if err != nil {
 		return fmt.Errorf("实体抽取失败: %w", err)
 	}
-	var res extractResult
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &res); err != nil {
-		return fmt.Errorf("实体抽取结果解析失败: %w", err)
+	res, ok := parseExtract(raw)
+	if !ok {
+		// 首次输出为空/非 JSON(思考型模型偶发): 重试一次,更严格指令 + 更小规模
+		raw, err = llm.Chat(ctx, cfg, "只输出 JSON,不要任何其他文字。",
+			fmt.Sprintf(`抽取实体与关系,输出紧凑单行 JSON(实体≤15个,关系≤10条):
+{"entities":[{"name":"...","type":"..."}],"relations":[{"subject":"...","predicate":"...","object":"...","confidence":0.9}]}
+内容:
+%s`, body))
+		if err != nil {
+			return fmt.Errorf("实体抽取失败(重试): %w", err)
+		}
+		res, ok = parseExtract(raw)
+		if !ok {
+			return fmt.Errorf("实体抽取结果解析失败(已重试): %.200s", raw)
+		}
 	}
 
 	// 实体入库(名字归一 upsert)
@@ -147,4 +158,23 @@ func extractJSON(s string) string {
 		}
 	}
 	return s
+}
+
+// parseExtract 解析抽取输出;空输出或非 JSON 返回 ok=false(调用方决定是否重试)。
+func parseExtract(raw string) (extractResult, bool) {
+	var res extractResult
+	s := extractJSON(strings.TrimSpace(raw))
+	if s == "" {
+		return res, false
+	}
+	if err := json.Unmarshal([]byte(s), &res); err != nil {
+		return res, false
+	}
+	if res.Entities == nil {
+		res.Entities = []extractEntity{}
+	}
+	if res.Relations == nil {
+		res.Relations = []extractRelation{}
+	}
+	return res, true
 }
