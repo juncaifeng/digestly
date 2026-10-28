@@ -33,6 +33,15 @@ func NewChain(st *store.Store, steps ...Enricher) *Chain {
 	return &Chain{steps: steps, store: st}
 }
 
+// StepNames 当前链上的步骤名(展示用)。
+func (c *Chain) StepNames() []string {
+	names := make([]string, 0, len(c.steps))
+	for _, s := range c.steps {
+		names = append(names, s.Name())
+	}
+	return names
+}
+
 // claimTimeout processing 超时回收: 认领后超过此时长仍未出结果的视为处理端崩溃,重新认领。
 const claimTimeout = 30 * time.Minute
 

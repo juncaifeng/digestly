@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import {
-  Archive, ChevronDown, ChevronRight, FolderOpen, FolderPlus, LayoutList,
+  Archive, ChevronDown, ChevronRight, FolderOpen, FolderPlus, LayoutList, ListChecks,
   Pencil, RefreshCw, Rss, Search, Settings, Settings2, Sparkles, Store, Trash2,
 } from "lucide-react"
 
@@ -9,6 +9,7 @@ import { CreationCenterView } from "@/components/CreationCenterView"
 import { ItemDetail } from "@/components/ItemDetail"
 import { MarketView } from "@/components/MarketView"
 import { SettingsView } from "@/components/SettingsView"
+import { TasksView } from "@/components/TasksView"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -29,7 +30,7 @@ export default function App() {
   const [activeColumn, setActiveColumn] = useState<number | undefined>()
   const [query, setQuery] = useState("")
   const [newFeed, setNewFeed] = useState({ title: "", url: "" })
-  const [view, setView] = useState<"articles" | "market" | "creation" | "settings">("articles")
+  const [view, setView] = useState<"articles" | "market" | "creation" | "tasks" | "settings">("articles")
   const [selected, setSelected] = useState<Item | null>(null)
   const [newColumn, setNewColumn] = useState("")
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
@@ -198,6 +199,14 @@ export default function App() {
             <Sparkles className="size-4" /> 创作
           </Button>
           <Button
+            variant={view === "tasks" ? "secondary" : "ghost"}
+            size="sm"
+            className="flex-1"
+            onClick={() => setView("tasks")}
+          >
+            <ListChecks className="size-4" /> 任务
+          </Button>
+          <Button
             variant={view === "settings" ? "secondary" : "ghost"}
             size="sm"
             className="flex-1"
@@ -326,6 +335,8 @@ export default function App() {
         <MarketView onInstalled={() => { loadFeeds(); loadColumns() }} />
       ) : view === "settings" ? (
         <SettingsView />
+      ) : view === "tasks" ? (
+        <TasksView />
       ) : view === "creation" ? (
         <CreationCenterView onGenerated={() => { loadItems(); loadFeeds() }} />
       ) : (

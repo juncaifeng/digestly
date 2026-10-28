@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -233,29 +235,118 @@ func registerStatsRoutes(r chi.Router, st *store.Store) {
 	})
 }
 
+// pipelineRunner 管线后台执行器: 单飞(同一时刻只跑一个批次),状态供任务页轮询。
+type pipelineRunner struct {
+	mu        sync.Mutex
+	running   bool
+	processed int
+	total     int // 本批目标条数
+	lastErr   string
+	lastDone  time.Time
+}
+
+func (p *pipelineRunner) start(total int, fn func() (int, error)) bool {
+	p.mu.Lock()
+	if p.running {
+		p.mu.Unlock()
+		return false
+	}
+	p.running, p.processed, p.total, p.lastErr = true, 0, total, ""
+	p.mu.Unlock()
+	go func() {
+		n, err := fn()
+		p.mu.Lock()
+		p.running = false
+		p.processed = n
+		if err != nil {
+			p.lastErr = err.Error()
+		}
+		p.lastDone = time.Now()
+		p.mu.Unlock()
+	}()
+	return true
+}
+
+func (p *pipelineRunner) snapshot() map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	last := ""
+	if !p.lastDone.IsZero() {
+		last = p.lastDone.Format(time.RFC3339)
+	}
+	return map[string]any{
+		"running": p.running, "processed": p.processed, "total": p.total,
+		"last_error": p.lastErr, "last_done": last,
+	}
+}
+
 func registerPipelineRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
-	r.Post("/pipeline/run", func(w http.ResponseWriter, _ *http.Request) {
-		n, err := chain.RunOnce(500)
+	runner := &pipelineRunner{}
+
+	// 管线状态: 各状态计数 + 批次执行态 + 步骤清单
+	r.Get("/pipeline/status", func(w http.ResponseWriter, _ *http.Request) {
+		counts, err := st.ItemStatusCounts()
 		if err != nil {
 			writeErr(w, 500, err)
 			return
 		}
-		writeJSON(w, 200, map[string]int{"processed": n})
+		writeJSON(w, 200, map[string]any{
+			"pending":    counts[model.StatusPending],
+			"processing": counts[model.StatusProcessing],
+			"processed":  counts[model.StatusProcessed],
+			"failed":     counts[model.StatusFailed],
+			"batch":      runner.snapshot(),
+			"steps":      chain.StepNames(),
+		})
 	})
-	// 批量重试标注失败的文章: failed 退回 pending 后跑一批管线
-	r.Post("/pipeline/retry", func(w http.ResponseWriter, _ *http.Request) {
-		n, err := st.RetryFailed()
-		if err != nil {
-			writeErr(w, 500, err)
+
+	// 手动处理一批(后台执行,单飞;limit 缺省 500)
+	r.Post("/pipeline/run", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		limit := body.Limit
+		if limit <= 0 {
+			limit = 500
+		}
+		if !runner.start(limit, func() (int, error) { return chain.RunOnce(limit) }) {
+			writeErr(w, 409, fmt.Errorf("已有批次在执行中"))
 			return
 		}
-		processed := 0
-		if n > 0 {
-			if processed, err = chain.RunOnce(500); err != nil {
-				writeErr(w, 500, err)
-				return
+		writeJSON(w, 202, map[string]any{"started": true, "limit": limit})
+	})
+
+	// 批量重试标注失败的文章: failed 退回 pending 后跑一批
+	r.Post("/pipeline/retry", func(w http.ResponseWriter, _ *http.Request) {
+		if !runner.start(500, func() (int, error) {
+			if n, err := st.RetryFailed(); err != nil || n == 0 {
+				return 0, err
 			}
+			return chain.RunOnce(500)
+		}) {
+			writeErr(w, 409, fmt.Errorf("已有批次在执行中"))
+			return
 		}
-		writeJSON(w, 200, map[string]int{"retried": n, "processed": processed})
+		writeJSON(w, 202, map[string]any{"started": true})
+	})
+
+	// 全部重跑: 退回 pending(清标注)后跑一批。LLM 步骤会产生费用,前端确认后调用
+	r.Post("/pipeline/reprocess", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			All bool `json:"all"` // true = 连 failed/processing 一起重置;false = 只重跑 processed
+		}
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		if !runner.start(500, func() (int, error) {
+			n, err := st.ResetEnrichment(body.All)
+			if err != nil || n == 0 {
+				return 0, err
+			}
+			return chain.RunOnce(500)
+		}) {
+			writeErr(w, 409, fmt.Errorf("已有批次在执行中"))
+			return
+		}
+		writeJSON(w, 202, map[string]any{"started": true})
 	})
 }

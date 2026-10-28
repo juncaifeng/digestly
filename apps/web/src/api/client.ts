@@ -299,6 +299,30 @@ export const opmlApi = {
     }),
 }
 
+export interface PipelineStatus {
+  pending: number
+  processing: number
+  processed: number
+  failed: number
+  batch: { running: boolean; processed: number; total: number; last_error: string; last_done: string }
+  steps: string[]
+}
+
+export const pipelineApi = {
+  status: () => req<PipelineStatus>("/pipeline/status"),
+  run: (limit?: number) =>
+    req<{ started: boolean; limit: number }>("/pipeline/run", {
+      method: "POST",
+      body: JSON.stringify({ limit }),
+    }),
+  retry: () => req<{ started: boolean }>("/pipeline/retry", { method: "POST", body: "{}" }),
+  reprocess: (all: boolean) =>
+    req<{ started: boolean }>("/pipeline/reprocess", {
+      method: "POST",
+      body: JSON.stringify({ all }),
+    }),
+}
+
 export const llmApi = {
   presets: () => req<ProviderPreset[]>("/llm/presets"),
   embeddingPresets: () => req<EmbeddingProviderPreset[]>("/llm/embedding-presets"),

@@ -480,3 +480,22 @@ func quoteFTS(q string) string {
 	q = strings.ReplaceAll(q, `"`, `""`)
 	return `"` + q + `"`
 }
+
+// ItemStatusCounts 未归档文章按标注状态计数(pending/processing/processed/failed)。
+func (s *Store) ItemStatusCounts() (map[model.ItemStatus]int, error) {
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM items WHERE archived=0 GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[model.ItemStatus]int{}
+	for rows.Next() {
+		var st model.ItemStatus
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, rows.Err()
+}
