@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { Check, Copy, Cpu, Download, Pencil, Plus, RefreshCw, Star, Trash2, Zap } from "lucide-react"
+import { Check, Copy, Cpu, Download, Pencil, Plus, RefreshCw, Save, Star, Trash2, Zap } from "lucide-react"
 
-import { llmApi, mcpApi, opmlApi, type LLMConfig, type ProviderPreset } from "@/api/client"
+import { ingestApi, llmApi, mcpApi, opmlApi, type LLMConfig, type ProviderPreset } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,6 +22,9 @@ export function SettingsView() {
   const [presets, setPresets] = useState<ProviderPreset[]>([])
   const [presetName, setPresetName] = useState("")
 
+  // 采集入库限制(全局默认)
+  const [ingest, setIngest] = useState({ max_items: 50, max_age_days: 30 })
+
   // MCP 服务状态
   const [mcpState, setMcpState] = useState<{
     status: "checking" | "ok" | "error"
@@ -41,6 +44,7 @@ export function SettingsView() {
   const load = () => {
     llmApi.list().then(setConfigs).catch((e) => setError(`LLM 配置加载失败: ${e.message}`))
     llmApi.presets().then(setPresets).catch(() => {})
+    ingestApi.get().then(setIngest).catch(() => {})
   }
   useEffect(() => { void load() }, [])
 
@@ -215,6 +219,41 @@ export function SettingsView() {
               <p className="text-xs text-muted-foreground">
                 导出: 全部订阅源按专栏分组生成 OPML,可备份或迁移到其他阅读器。
                 导入: OPML 里的分组映射为专栏(不存在自动创建),已订阅的源(按 URL)自动跳过。
+              </p>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* 采集限制(入库前截断) */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <RefreshCw className="size-5" /> 采集限制
+            <Badge variant="secondary" className="ml-auto">入库前截断</Badge>
+          </h2>
+          <Card>
+            <CardContent className="flex flex-col gap-2 pt-4">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">每源最多收最近 N 条(0 = 不限)</span>
+                  <Input type="number" min={0} value={ingest.max_items}
+                    onChange={(e) => setIngest({ ...ingest, max_items: parseInt(e.target.value, 10) || 0 })} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">只收最近 X 天发布的(0 = 不限)</span>
+                  <Input type="number" min={0} value={ingest.max_age_days}
+                    onChange={(e) => setIngest({ ...ingest, max_age_days: parseInt(e.target.value, 10) || 0 })} />
+                </div>
+              </div>
+              <div>
+                <Button size="sm" onClick={() => ingestApi.save(ingest.max_items, ingest.max_age_days)
+                  .then(() => setNotice("采集限制已保存,下次拉取生效"))
+                  .catch((e) => setError(`保存失败: ${(e as Error).message}`))}>
+                  <Save className="size-3.5" /> 保存
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                拉取时超过天数或超出条数(取最近)的不再入库——防止首次订阅整站 RSS 一次灌入上千条历史。
+                只影响新拉取,已入库不动(用归档管理存量);订阅行上的「历史上限」优先于全局条数。
               </p>
             </CardContent>
           </Card>

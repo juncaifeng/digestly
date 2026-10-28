@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -99,20 +100,8 @@ func (s *Scheduler) RefreshFeed(ctx context.Context, feedID int64) error {
 	if err != nil {
 		return err
 	}
-	// 历史上限: 只留最近 MaxItems 条再入库,防止单次全量灌入(如整站 RSS)
-	if feed.MaxItems > 0 && len(items) > feed.MaxItems {
-		sort.SliceStable(items, func(i, j int) bool {
-			pi, pj := items[i].PublishedAt, items[j].PublishedAt
-			if pi == nil {
-				return false // 无发布时间的排最后
-			}
-			if pj == nil {
-				return true
-			}
-			return pi.After(*pj)
-		})
-		items = items[:feed.MaxItems]
-	}
+	// 入库前过滤: 超龄不收,超量只收最近 N 条(每源 max_items 优先于全局默认)
+	items = filterIngest(items, s.ingestLimits(feed), time.Now())
 	n, err := s.store.InsertItems(items)
 	if err != nil {
 		return err
@@ -124,4 +113,68 @@ func (s *Scheduler) RefreshFeed(ctx context.Context, feedID int64) error {
 	}
 	log.Printf("feed %d(%s): %d new items", feed.ID, feed.Title, n)
 	return nil
+}
+
+// 采集入库默认限制(可在设置页调整,0 = 不限)。
+// 首次订阅整站 RSS 时往往带回全量历史,不设限会一次灌入上千条(如 OpenAI Blog)。
+const (
+	DefaultIngestMaxItems   = 50 // 每次采集最多收最近 N 条
+	DefaultIngestMaxAgeDays = 30 // 只收最近 X 天发布的
+)
+
+type ingestLimits struct {
+	maxItems   int
+	maxAgeDays int
+}
+
+// ingestLimits 解析生效的入库限制: 每源 max_items 优先,未设则用全局设置,再缺省用默认值。
+func (s *Scheduler) ingestLimits(feed *model.Feed) ingestLimits {
+	l := ingestLimits{maxItems: DefaultIngestMaxItems, maxAgeDays: DefaultIngestMaxAgeDays}
+	if v, ok, err := s.store.GetSetting("ingest_max_items"); err == nil && ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			l.maxItems = n
+		}
+	}
+	if v, ok, err := s.store.GetSetting("ingest_max_age_days"); err == nil && ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			l.maxAgeDays = n
+		}
+	}
+	if feed.MaxItems > 0 {
+		l.maxItems = feed.MaxItems
+	}
+	return l
+}
+
+// filterIngest 入库前过滤(纯函数,不改输入顺序):
+//   - 超龄丢弃(maxAgeDays > 0 时,发布时间早于 now-N 天的不收;无发布时间的保留);
+//   - 按发布时间降序取前 maxItems 条(maxItems <= 0 不限)。
+//
+// 只影响新拉取,已入库数据不动(存量用归档管理)。
+func filterIngest(items []model.Item, l ingestLimits, now time.Time) []model.Item {
+	var cutoff time.Time
+	if l.maxAgeDays > 0 {
+		cutoff = now.AddDate(0, 0, -l.maxAgeDays)
+	}
+	kept := make([]model.Item, 0, len(items))
+	for _, it := range items {
+		if l.maxAgeDays > 0 && it.PublishedAt != nil && it.PublishedAt.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, it)
+	}
+	if l.maxItems > 0 && len(kept) > l.maxItems {
+		sort.SliceStable(kept, func(i, j int) bool {
+			pi, pj := kept[i].PublishedAt, kept[j].PublishedAt
+			if pi == nil {
+				return false // 无发布时间的排最后
+			}
+			if pj == nil {
+				return true
+			}
+			return pi.After(*pj)
+		})
+		kept = kept[:l.maxItems]
+	}
+	return kept
 }

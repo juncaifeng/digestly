@@ -246,6 +246,16 @@ export const mcpApi = {
   },
 }
 
+export const ingestApi = {
+  // 采集入库限制(全局默认): 条数 + 天数,0 = 不限
+  get: () => req<{ max_items: number; max_age_days: number }>("/settings/ingest"),
+  save: (max_items: number, max_age_days: number) =>
+    req<{ max_items: number; max_age_days: number }>("/settings/ingest", {
+      method: "PUT",
+      body: JSON.stringify({ max_items, max_age_days }),
+    }),
+}
+
 export const opmlApi = {
   // 导出全部订阅(按专栏分组)为 OPML 文本
   export: async (): Promise<string> => {
