@@ -15,6 +15,7 @@ import (
 
 	"github.com/juncaifeng/digestly/core/collector"
 	"github.com/juncaifeng/digestly/core/market"
+	mcpapi "github.com/juncaifeng/digestly/core/mcp"
 	"github.com/juncaifeng/digestly/core/pipeline"
 	"github.com/juncaifeng/digestly/core/scheduler"
 	"github.com/juncaifeng/digestly/core/store"
@@ -72,6 +73,10 @@ func main() {
 		registerCreationRoutes(r, st)
 	})
 
-	log.Printf("digestly server listening on %s (data: %s)", *addr, *dataDir)
+	// MCP 入口(与 web / CLI 并列的第三种入口): streamable HTTP,工具面与 digestly-cli 一致。
+	// MCP 客户端(Claude Code / Kimi Code 等)把 http://<host>/mcp 加为 MCP server 即可调用。
+	r.Handle("/mcp", mcpapi.Handler(st))
+
+	log.Printf("digestly server listening on %s (data: %s, mcp: http://%s/mcp)", *addr, *dataDir, *addr)
 	log.Fatal(http.ListenAndServe(*addr, r))
 }
