@@ -8,8 +8,3 @@ models:
   - id: glm-4.5-flash
     label: GLM-4.5-Flash(免费)
     context: 128K
-
-embeddings:
-  - id: embedding-3
-    label: Embedding-3
-    dimensions: 2048

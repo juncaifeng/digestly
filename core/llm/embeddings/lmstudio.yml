@@ -1,0 +1,13 @@
+# 向量模型预设(schema 见 openai.yml 头注释)
+name: LM Studio(本地)
+base_url: http://127.0.0.1:1234/v1
+docs: https://lmstudio.ai/docs/basics/server
+note: 本地运行时;在 LM Studio 里加载 Embedding 模型并启动本地 Server;无需 api key
+local: true
+models:
+  - id: text-embedding-bge-m3
+    label: bge-m3(LM Studio 内名称以加载页为准)
+    dimensions: 1024
+  - id: text-embedding-nomic-embed-text-v1.5
+    label: nomic-embed-text-v1.5
+    dimensions: 768

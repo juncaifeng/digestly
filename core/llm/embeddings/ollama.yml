@@ -1,0 +1,23 @@
+# 向量模型预设(schema 见 openai.yml 头注释)
+name: Ollama(本地)
+base_url: http://127.0.0.1:11434/v1
+docs: https://ollama.com/library
+note: 本地运行时;先 ollama pull <模型名> 再填模型名调用;无需 api key,数据不出本机
+local: true
+models:
+  - id: bge-m3
+    label: BAAI bge-m3(多语言,推荐)
+    dimensions: 1024
+    note: ollama pull bge-m3
+  - id: nomic-embed-text
+    label: nomic-embed-text(英文为主)
+    dimensions: 768
+    note: ollama pull nomic-embed-text
+  - id: mxbai-embed-large
+    label: mxbai-embed-large
+    dimensions: 1024
+    note: ollama pull mxbai-embed-large
+  - id: snowflake-arctic-embed2
+    label: snowflake-arctic-embed2
+    dimensions: 1024
+    note: ollama pull snowflake-arctic-embed2

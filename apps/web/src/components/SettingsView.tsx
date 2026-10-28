@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Check, Copy, Cpu, Download, Pencil, Plus, RefreshCw, Save, Star, Trash2, Zap } from "lucide-react"
 
-import { ingestApi, llmApi, mcpApi, opmlApi, type LLMConfig, type ProviderPreset } from "@/api/client"
+import { ingestApi, llmApi, mcpApi, opmlApi, type EmbeddingProviderPreset, type LLMConfig, type ProviderPreset } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,6 +21,9 @@ export function SettingsView() {
   // 供应商预设(内置 YAML + data/llm_providers 用户覆盖)
   const [presets, setPresets] = useState<ProviderPreset[]>([])
   const [presetName, setPresetName] = useState("")
+  // 向量模型预设(独立 schema,含本地运行时 Ollama / LM Studio 等)
+  const [embedPresets, setEmbedPresets] = useState<EmbeddingProviderPreset[]>([])
+  const [embedPresetName, setEmbedPresetName] = useState("")
 
   // 采集入库限制(全局默认)
   const [ingest, setIngest] = useState({ max_items: 50, max_age_days: 30 })
@@ -44,11 +47,13 @@ export function SettingsView() {
   const load = () => {
     llmApi.list().then(setConfigs).catch((e) => setError(`LLM 配置加载失败: ${e.message}`))
     llmApi.presets().then(setPresets).catch(() => {})
+    llmApi.embeddingPresets().then(setEmbedPresets).catch(() => {})
     ingestApi.get().then(setIngest).catch(() => {})
   }
   useEffect(() => { void load() }, [])
 
   const preset = presets.find((p) => p.name === presetName)
+  const embedPreset = embedPresets.find((p) => p.name === embedPresetName)
   const presetModel = preset?.models.find((m) => m.id === form.model)
 
   const applyPreset = (name: string) => {
@@ -57,11 +62,23 @@ export function SettingsView() {
     if (!p) return
     setForm((f) => ({
       ...f,
+      kind: "chat",
       name: f.name || p.name,
       base_url: p.base_url,
-      model: f.kind === "embedding"
-        ? (p.embeddings?.[0]?.id ?? f.model)
-        : (p.models[0]?.id ?? f.model),
+      model: p.models[0]?.id ?? f.model,
+    }))
+  }
+
+  const applyEmbedPreset = (name: string) => {
+    setEmbedPresetName(name)
+    const p = embedPresets.find((x) => x.name === name)
+    if (!p) return
+    setForm((f) => ({
+      ...f,
+      kind: "embedding",
+      name: f.name || p.name,
+      base_url: p.base_url,
+      model: p.models[0]?.id ?? f.model,
     }))
   }
 
@@ -312,17 +329,32 @@ export function SettingsView() {
                 <option value="chat">对话 / 生成(chat)</option>
                 <option value="embedding">向量模型(embedding)</option>
               </select>
-              {presets.length > 0 && (
+              {form.kind === "chat" && presets.length > 0 && (
                 <select
                   className="border rounded-md h-9 px-2 text-sm bg-transparent"
                   value={presetName}
                   onChange={(e) => applyPreset(e.target.value)}
                 >
-                  <option value="">从供应商预设填充(DeepSeek / Kimi / 智谱 / 通义…)…</option>
+                  <option value="">从 LLM 供应商预设填充(DeepSeek / Kimi / 智谱 / 通义…)…</option>
                   {presets.map((p) => (
                     <option key={p.name} value={p.name}>{p.name}</option>
                   ))}
                 </select>
+              )}
+              {form.kind === "embedding" && embedPresets.length > 0 && (
+                <select
+                  className="border rounded-md h-9 px-2 text-sm bg-transparent"
+                  value={embedPresetName}
+                  onChange={(e) => applyEmbedPreset(e.target.value)}
+                >
+                  <option value="">从向量模型预设填充(OpenAI / 硅基流动 / Ollama 本地…)…</option>
+                  {embedPresets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name}{p.local ? " · 本地" : ""}</option>
+                  ))}
+                </select>
+              )}
+              {form.kind === "embedding" && embedPreset?.note && (
+                <p className="text-xs text-muted-foreground">{embedPreset.note}</p>
               )}
               <div className="grid grid-cols-2 gap-2">
                 <Input placeholder="名称,如 DeepSeek" value={form.name}
@@ -330,14 +362,14 @@ export function SettingsView() {
                 <Input placeholder="模型,如 deepseek-flash" value={form.model}
                   onChange={(e) => setForm({ ...form, model: e.target.value })} />
               </div>
-              {form.kind === "embedding" && preset && (preset.embeddings?.length ?? 0) > 0 && (
+              {form.kind === "embedding" && embedPreset && embedPreset.models.length > 0 && (
                 <select
                   className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                  value={preset.embeddings!.some((m) => m.id === form.model) ? form.model : ""}
+                  value={embedPreset.models.some((m) => m.id === form.model) ? form.model : ""}
                   onChange={(e) => e.target.value && setForm({ ...form, model: e.target.value })}
                 >
-                  <option value="">选择 {preset.name} 的向量模型…</option>
-                  {preset.embeddings!.map((m) => (
+                  <option value="">选择 {embedPreset.name} 的向量模型…</option>
+                  {embedPreset.models.map((m) => (
                     <option key={m.id} value={m.id}>{m.label || m.id}{m.dimensions ? ` · ${m.dimensions} 维` : ""}</option>
                   ))}
                 </select>
@@ -354,7 +386,7 @@ export function SettingsView() {
                   ))}
                 </select>
               )}
-              {presetModel && (
+              {form.kind === "chat" && presetModel && (
                 <div className="text-xs text-muted-foreground border rounded-md p-2 flex flex-col gap-0.5">
                   {presetModel.label && <span>版本: {presetModel.label}</span>}
                   <span>
@@ -367,7 +399,7 @@ export function SettingsView() {
                   {presetModel.pricing && <pre className="whitespace-pre-wrap">{presetModel.pricing}</pre>}
                 </div>
               )}
-              {preset?.note && <p className="text-xs text-muted-foreground">{preset.note}</p>}
+              {form.kind === "chat" && preset?.note && <p className="text-xs text-muted-foreground">{preset.note}</p>}
               <Input placeholder="Base URL,如 https://api.deepseek.com/v1" value={form.base_url}
                 onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
               <Input placeholder="API Key" type="password" value={form.api_key}

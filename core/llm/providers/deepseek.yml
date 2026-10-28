@@ -12,11 +12,6 @@
 #     vision:     是否支持图像理解
 #     pricing:    价格说明(每百万 tokens,多行文本)
 #     concurrency: 并发限制
-#   embeddings:  可选向量模型列表(kind=embedding 的配置从这里选)
-#     id:         调用用的模型名
-#     label:      展示名
-#     dimensions: 向量维度
-#     pricing:    价格说明
 
 name: DeepSeek
 base_url: https://api.deepseek.com

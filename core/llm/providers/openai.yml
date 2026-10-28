@@ -8,13 +8,3 @@ models:
   - id: gpt-5-mini
     label: GPT-5 mini
     context: 400K
-
-embeddings:
-  - id: text-embedding-3-small
-    label: text-embedding-3-small
-    dimensions: 1536
-    pricing: $0.02/百万 tokens
-  - id: text-embedding-3-large
-    label: text-embedding-3-large
-    dimensions: 3072
-    pricing: $0.13/百万 tokens

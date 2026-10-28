@@ -1,0 +1,25 @@
+# 向量模型预设 schema(与 LLM 供应商预设 providers/ 分开维护):
+#   name:      供应商/本地运行时名(唯一,用户目录 <data>/llm_embeddings/*.yml 同名文件覆盖内置)
+#   base_url:  OpenAI 兼容 embeddings 接口地址(程序自动拼 /embeddings)
+#   docs:      文档地址
+#   note:      备注(部署要求/拉取方式等)
+#   local:     true = 本地运行时(Ollama / LM Studio / llama.cpp 等),false = 云端 API
+#   models:    可选向量模型列表
+#     id:         调用用的模型名
+#     label:      展示名
+#     dimensions: 向量维度
+#     note:       价格/拉取方式等说明
+
+name: OpenAI
+base_url: https://api.openai.com/v1
+docs: https://platform.openai.com/docs/embeddings
+local: false
+models:
+  - id: text-embedding-3-small
+    label: text-embedding-3-small
+    dimensions: 1536
+    note: $0.02/百万 tokens
+  - id: text-embedding-3-large
+    label: text-embedding-3-large
+    dimensions: 3072
+    note: $0.13/百万 tokens

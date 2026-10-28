@@ -65,6 +65,16 @@ func registerSettingsRoutes(r chi.Router, st *store.Store, dataDir string) {
 		writeJSON(w, 200, presets)
 	})
 
+	// 向量模型预设(独立于 LLM 供应商,含本地运行时): 内置(embed) + <data>/llm_embeddings/*.yml 用户覆盖
+	r.Get("/llm/embedding-presets", func(w http.ResponseWriter, _ *http.Request) {
+		presets, err := llm.EmbeddingPresets(filepath.Join(dataDir, "llm_embeddings"))
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, presets)
+	})
+
 	r.Get("/llm/configs", func(w http.ResponseWriter, _ *http.Request) {
 		cfgs, err := st.ListLLMConfigs()
 		if err != nil {

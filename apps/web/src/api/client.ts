@@ -16,6 +16,15 @@ export interface Feed {
 
 export type ItemStatus = "pending" | "processing" | "processed" | "failed"
 
+// 文章滑动窗口分块(总摘要在 Item.summary,块摘要在 chunks)
+export interface ItemChunk {
+  id: number
+  item_id: number
+  index: number
+  text: string
+  summary: string
+}
+
 export interface Item {
   id: number
   feed_id: number
@@ -73,6 +82,7 @@ export const api = {
     return req<Item[]>(`/items?${qs}`)
   },
   getItem: (id: number) => req<Item>(`/items/${id}`),
+  getItemChunks: (id: number) => req<ItemChunk[]>(`/items/${id}/chunks`),
   markRead: (id: number, read: boolean) =>
     req<void>(`/items/${id}/read`, { method: "POST", body: JSON.stringify({ read }) }),
   archiveItem: (id: number, archived: boolean) =>
@@ -212,11 +222,21 @@ export interface ModelPreset {
   concurrency: number
 }
 
-export interface EmbeddingPreset {
+export interface EmbeddingModel {
   id: string
   label: string
   dimensions: number
-  pricing: string
+  note: string
+}
+
+// 向量模型供应商/本地运行时预设(独立于 LLM 供应商预设)
+export interface EmbeddingProviderPreset {
+  name: string
+  base_url: string
+  docs: string
+  note: string
+  local: boolean
+  models: EmbeddingModel[]
 }
 
 export interface ProviderPreset {
@@ -225,7 +245,6 @@ export interface ProviderPreset {
   docs: string
   note: string
   models: ModelPreset[]
-  embeddings?: EmbeddingPreset[]
 }
 
 // MCP 入口地址(与 web 同一 server 的 /mcp; dev 下 vite 只代理 /api,故用绝对地址)
@@ -282,6 +301,7 @@ export const opmlApi = {
 
 export const llmApi = {
   presets: () => req<ProviderPreset[]>("/llm/presets"),
+  embeddingPresets: () => req<EmbeddingProviderPreset[]>("/llm/embedding-presets"),
   list: () => req<LLMConfig[]>("/llm/configs"),
   create: (c: Partial<LLMConfig>) =>
     req<LLMConfig>("/llm/configs", { method: "POST", body: JSON.stringify(c) }),

@@ -12,11 +12,3 @@ models:
   - id: qwen-flash
     label: Qwen Flash
     context: 1M
-
-embeddings:
-  - id: text-embedding-v4
-    label: text-embedding-v4
-    dimensions: 1024
-  - id: text-embedding-v3
-    label: text-embedding-v3
-    dimensions: 1024

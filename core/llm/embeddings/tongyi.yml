@@ -1,0 +1,13 @@
+# 向量模型预设(schema 见 openai.yml 头注释)
+name: 通义千问 DashScope
+base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+docs: https://help.aliyun.com/zh/model-studio/text-embedding
+note: 云端 API(OpenAI 兼容模式)
+local: false
+models:
+  - id: text-embedding-v4
+    label: text-embedding-v4
+    dimensions: 1024
+  - id: text-embedding-v3
+    label: text-embedding-v3
+    dimensions: 1024
