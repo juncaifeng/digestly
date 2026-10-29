@@ -258,24 +258,16 @@ export function ItemDetail({
             </div>
           )}
           {(chunks ?? []).map((c) => (
-            <div key={c.id} className="border rounded-lg overflow-hidden">
-              <div className="px-3 py-2 bg-muted/40 flex items-start gap-2">
-                <Badge variant="secondary" className="shrink-0">块 {c.index + 1}</Badge>
-                <p className="text-sm font-medium flex-1">{c.summary || "(无块摘要)"}</p>
+            <div key={c.id} className="rounded-md border p-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">块 {c.index + 1}</span>
+                <span className="text-xs text-muted-foreground">原文 {c.text.length} 字</span>
               </div>
+              <p className="text-sm font-medium">{c.summary || "(无块摘要)"}</p>
               {(c.entities?.length ?? 0) > 0 && (
-                <div className="px-3 pt-2 flex flex-wrap gap-1">
-                  {c.entities.map((en) => (
-                    <Badge key={en} variant="outline" className="text-xs">{en}</Badge>
-                  ))}
-                </div>
+                <p className="text-xs text-muted-foreground">实体: {c.entities.join("、")}</p>
               )}
-              <details>
-                <summary className="px-3 py-1.5 text-xs text-muted-foreground cursor-pointer hover:bg-accent/50">
-                  块原文({c.text.length} 字)
-                </summary>
-                <p className="px-3 pb-3 text-sm whitespace-pre-wrap leading-relaxed">{c.text}</p>
-              </details>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto rounded border p-2">{c.text}</p>
             </div>
           ))}
         </div>
