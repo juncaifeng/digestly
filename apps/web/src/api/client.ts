@@ -210,6 +210,18 @@ export const marketApi = {
       body: JSON.stringify({ url }),
     }),
   removeSource: (id: number) => req<void>(`/market/sources/${id}`, { method: "DELETE" }),
+  // 导入本地 OPML 作为市场源(文件内容上传,服务端存盘后按 file:// 挂载)
+  importSource: (content: string, title = "") =>
+    req<{ id: number; source: string; count: number; feeds: SourceFeed[] }>("/market/sources/import", {
+      method: "POST",
+      body: JSON.stringify({ content, title }),
+    }),
+  // 导出某市场源目录为 OPML 文本
+  exportSource: async (id: number): Promise<string> => {
+    const res = await fetch(`${BASE}/api/market/sources/${id}/opml`)
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`)
+    return res.text()
+  },
   refreshSource: (id: number) =>
     req<{ count: number }>(`/market/sources/${id}/refresh`, { method: "POST" }),
   // waitReady=true 时首轮加载挂起等后台预热完成(上限 5s)

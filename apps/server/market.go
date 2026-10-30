@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/juncaifeng/digestly/core/collector"
 	"github.com/juncaifeng/digestly/core/market"
 	"github.com/juncaifeng/digestly/core/model"
+	"github.com/juncaifeng/digestly/core/opml"
 	"github.com/juncaifeng/digestly/core/store"
 )
 
@@ -90,6 +93,9 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, fm *market.FeedMarket
 		out := make([]sourceWithFeeds, 0, len(srcs))
 		for _, src := range srcs {
 			sf := fm.Get(req.Context(), src.URL, src.Title)
+			if sf.Feeds == nil {
+				sf.Feeds = []market.MarketFeed{} // 空目录也必须是数组,防前端 null.map 崩
+			}
 			row := sourceWithFeeds{MarketSource: src, Feeds: sf.Feeds, ParseErr: sf.Err}
 			if !sf.FetchedAt.IsZero() {
 				row.FetchedAt = sf.FetchedAt.UTC().Format(time.RFC3339)
@@ -149,6 +155,84 @@ func registerMarketRoutes(r chi.Router, mc *market.Client, fm *market.FeedMarket
 			}
 		}
 		writeErr(w, 404, fmt.Errorf("market source %d not found", id))
+	})
+
+	// 导出某市场源目录为 OPML(备份/分享)
+	r.Get("/market/sources/{id}/opml", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+		srcs, err := st.ListSources()
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		for _, src := range srcs {
+			if src.ID != id {
+				continue
+			}
+			sf := fm.Get(req.Context(), src.URL, src.Title)
+			entries := make([]opml.Entry, 0, len(sf.Feeds))
+			for _, f := range sf.Feeds {
+				title := f.Title
+				if title == "" {
+					title = f.Name
+				}
+				entries = append(entries, opml.Entry{Title: title, XMLURL: f.FeedURL, HTMLURL: f.SiteURL})
+			}
+			raw, err := opml.Build(src.Title, nil, entries)
+			if err != nil {
+				writeErr(w, 500, err)
+				return
+			}
+			w.Header().Set("Content-Type", "text/x-opml; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="market-%d.opml"`, id))
+			_, _ = w.Write(raw)
+			return
+		}
+		writeErr(w, 404, fmt.Errorf("market source %d not found", id))
+	})
+
+	// 导入本地 OPML 为市场源: 文件内容存到 <data>/market_user/,按 file:// 挂载
+	r.Post("/market/sources/import", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			Title   string `json:"title"`
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || strings.TrimSpace(body.Content) == "" {
+			writeErr(w, 400, fmt.Errorf("缺少 content(OPML 文本)"))
+			return
+		}
+		dir := filepath.Join(filepath.Dir(scriptsDir), "market_user")
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs // 存绝对路径,避免依赖进程 cwd
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		name := fmt.Sprintf("import-%d.opml", time.Now().UnixNano())
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body.Content), 0o644); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		raw := "file://" + filepath.ToSlash(path)
+		sf := fm.Sync(req.Context(), raw, body.Title)
+		if sf.Err != "" {
+			_ = os.Remove(path)
+			writeErr(w, 422, fmt.Errorf("%s", sf.Err))
+			return
+		}
+		title := strings.TrimSpace(body.Title)
+		if title == "" {
+			title = "本地导入 OPML"
+		}
+		id, err := st.AddSource(raw, title)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		_ = st.TouchSource(id, len(sf.Feeds))
+		writeJSON(w, 201, map[string]any{"id": id, "source": raw, "count": len(sf.Feeds), "feeds": sf.Feeds})
 	})
 
 	// 卸载市场源

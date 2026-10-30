@@ -6,6 +6,7 @@ package market
 // 有就解析,没有就报"没有清单"——不猜测、不拿仓库 commits/releases 凑订阅源。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -14,6 +15,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -118,6 +121,19 @@ func catalogURLs(rawURL string) []string {
 }
 
 func fetch(ctx context.Context, client *http.Client, rawURL string) ([]byte, error) {
+	// 本地清单: 市场源可从本地 OPML 文件挂载(file:// 前缀)
+	if strings.HasPrefix(rawURL, "file://") {
+		path := strings.TrimPrefix(rawURL, "file://")
+		path = strings.TrimPrefix(path, "/") // file:///E:/x.opml → E:/x.opml
+		b, err := os.ReadFile(filepath.FromSlash(path))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, &httpError{code: 404}
+			}
+			return nil, err
+		}
+		return readLimited(bytes.NewReader(b))
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err

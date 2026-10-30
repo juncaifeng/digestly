@@ -40,7 +40,7 @@ func main() {
 	defer st.Close()
 
 	mc := market.NewClient(filepath.Join(*dataDir, "market"))
-	fm := market.NewFeedMarket()
+	fm := market.NewFeedMarket(filepath.Join(*dataDir, "market_catalog.json"))
 	mc.StartWarmup() // 市场清单后台预热,首次打开市场页零等待
 
 	sched := scheduler.New(st)

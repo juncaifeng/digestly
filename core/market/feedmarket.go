@@ -2,7 +2,10 @@ package market
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -25,6 +28,10 @@ type FeedMarket struct {
 	// HTTP 用于解析清单;带短超时,避免远端挂起把后台刷新 goroutine 吊住
 	HTTP *http.Client
 
+	// CachePath 目录缓存落盘路径(空 = 仅内存)。启动即载入,
+	// 市场页打开先出缓存内容,过期才后台刷新——不必每次打开都回源。
+	CachePath string
+
 	mu         sync.Mutex
 	cache      map[string]*SourceFeeds
 	refreshing map[string]time.Time // 正在后台刷新的地址 → 开始时刻(超时即视为失效)
@@ -35,13 +42,55 @@ type FeedMarket struct {
 // 变量便于测试缩短。
 var refreshBudget = 30 * time.Second
 
-func NewFeedMarket() *FeedMarket {
-	return &FeedMarket{
+func NewFeedMarket(cachePath string) *FeedMarket {
+	m := &FeedMarket{
 		FeedTTL:    time.Hour,
 		HTTP:       &http.Client{Timeout: 15 * time.Second},
+		CachePath:  cachePath,
 		cache:      map[string]*SourceFeeds{},
 		refreshing: map[string]time.Time{},
 	}
+	m.load()
+	return m
+}
+
+// load 启动时从磁盘载入目录缓存(损坏/缺失时静默跳过)。
+func (m *FeedMarket) load() {
+	if m.CachePath == "" {
+		return
+	}
+	b, err := os.ReadFile(m.CachePath)
+	if err != nil {
+		return
+	}
+	var saved map[string]*SourceFeeds
+	if err := json.Unmarshal(b, &saved); err != nil {
+		return
+	}
+	for k, v := range saved {
+		if v != nil {
+			m.cache[k] = v
+		}
+	}
+}
+
+// persistLocked 落盘目录缓存(调用方需持有 mu)。原子写,失败不影响内存态。
+func (m *FeedMarket) persistLocked() {
+	if m.CachePath == "" {
+		return
+	}
+	b, err := json.Marshal(m.cache)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(m.CachePath), 0o755); err != nil {
+		return
+	}
+	tmp := m.CachePath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, m.CachePath)
 }
 
 // Sync 解析一个市场源并缓存目录(挂载/手动刷新时调用)。
@@ -69,6 +118,7 @@ func (m *FeedMarket) Sync(ctx context.Context, sourceURL, title string) *SourceF
 		sf.Feeds = feeds // 成功即清空旧的失败原因
 	}
 	m.cache[sourceURL] = sf
+	m.persistLocked()
 	return sf
 }
 
@@ -125,5 +175,6 @@ func (m *FeedMarket) Evict(sourceURL string) {
 	m.mu.Lock()
 	delete(m.cache, sourceURL)
 	delete(m.refreshing, sourceURL)
+	m.persistLocked()
 	m.mu.Unlock()
 }

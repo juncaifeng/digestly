@@ -51,6 +51,37 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
     }
   }
 
+  // 导入本地 OPML 文件作为市场源
+  const importLocal = async (file: File) => {
+    setLoading(true)
+    setError("")
+    try {
+      const text = await file.text()
+      const r = await marketApi.importSource(text, file.name.replace(/\.(opml|xml)$/i, ""))
+      load()
+      setActiveSource(r.id)
+    } catch (e) {
+      setError(`导入失败: ${(e as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 导出某市场源目录为 OPML 文件
+  const exportSource = async (id: number) => {
+    try {
+      const text = await marketApi.exportSource(id)
+      const blob = new Blob([text], { type: "text/x-opml" })
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = `market-${id}.opml`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (e) {
+      setError(`导出失败: ${(e as Error).message}`)
+    }
+  }
+
   const subscribe = async (f: SourceFeed) => {
     try {
       await api.addFeed({ title: f.title, url: f.feed_url, collector: "rss" })
@@ -66,7 +97,7 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
   }
 
   const feeds = sources.flatMap((s) =>
-    s.feeds.map((f) => ({ ...f, tags: f.tags ?? [], source_id: s.id, source_title: s.title }))
+    (s.feeds ?? []).map((f) => ({ ...f, tags: f.tags ?? [], source_id: s.id, source_title: s.title }))
   )
   const allTags = [...new Set(feeds.flatMap((f) => f.tags))].sort()
   const filtered = feeds.filter(
@@ -101,6 +132,21 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
         <Button size="sm" onClick={add} disabled={loading || !url.trim()}>
           <Plus className="size-3.5" /> {loading ? "解析中…" : "挂载"}
         </Button>
+        <label className="inline-flex">
+          <input
+            type="file"
+            accept=".opml,.xml,text/x-opml,application/xml"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void importLocal(f)
+              e.target.value = ""
+            }}
+          />
+          <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-sm font-medium cursor-pointer hover:bg-accent">
+            <Plus className="size-3.5" /> 导入本地 OPML
+          </span>
+        </label>
         <Input
           className="max-w-44 ml-auto"
           placeholder="搜索名称 / 地址…"
@@ -123,16 +169,21 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
               onClick={() => setActiveSource(activeSource === s.id ? undefined : s.id)}
             >
               <span className="font-medium">{s.title || s.url}</span>
-              <Badge variant="secondary">{s.feeds.length} 源</Badge>
+              <Badge variant="secondary">{s.feeds?.length ?? 0} 源</Badge>
               {s.parse_err && (
                 <Badge variant="destructive" title={s.parse_err}>
-                  {s.feeds.length > 0 ? "刷新失败(仍在用上次清单)" : "解析失败"}
+                  {(s.feeds?.length ?? 0) > 0 ? "刷新失败(仍在用上次清单)" : "解析失败"}
                 </Badge>
               )}
               <Button variant="ghost" size="icon" className="size-5"
                 title="刷新该市场源"
                 onClick={(e) => { e.stopPropagation(); marketApi.refreshSource(s.id).then(load) }}>
                 <RefreshCw className="size-3" />
+              </Button>
+              <Button variant="ghost" size="icon" className="size-5"
+                title="导出该市场源目录为 OPML"
+                onClick={(e) => { e.stopPropagation(); void exportSource(s.id) }}>
+                <Download className="size-3" />
               </Button>
               <Button variant="ghost" size="icon" className="size-5"
                 title="卸载"

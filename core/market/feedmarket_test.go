@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,7 +24,7 @@ func TestSyncFailureKeepsOldFeedsWithoutStalingTimestamp(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewFeedMarket()
+	m := NewFeedMarket("")
 	sf := m.Sync(context.Background(), srv.URL+"/feeds.json", "t")
 	if sf.Err != "" || len(sf.Feeds) != 1 {
 		t.Fatalf("initial sync: %+v", sf)
@@ -60,7 +62,7 @@ func TestGetRetriesThrottledWhenAlwaysFailing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewFeedMarket()
+	m := NewFeedMarket("")
 	m.FeedTTL = 50 * time.Millisecond
 	m.HTTP = &http.Client{Timeout: 100 * time.Millisecond}
 	oldBudget := refreshBudget
@@ -98,5 +100,34 @@ func TestGetRetriesThrottledWhenAlwaysFailing(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&hits); got == before {
 		t.Fatal("stale cache must retry once the previous refresh released")
+	}
+}
+
+// 目录缓存落盘: 重启(新实例)后无需回源即可拿到上次目录。
+func TestFeedMarketPersistsCatalog(t *testing.T) {
+	dir := t.TempDir()
+	opmlPath := filepath.Join(dir, "feeds.opml")
+	os.WriteFile(opmlPath, []byte(`<?xml version="1.0"?>
+<opml version="2.0"><body>
+<outline text="a" type="rss" xmlUrl="https://a.example/rss"/>
+<outline text="b" type="rss" xmlUrl="https://b.example/rss"/>
+</body></opml>`), 0o644)
+	srcURL := "file://" + filepath.ToSlash(opmlPath)
+	cachePath := filepath.Join(dir, "catalog.json")
+
+	m := NewFeedMarket(cachePath)
+	sf := m.Sync(context.Background(), srcURL, "本地清单")
+	if sf.Err != "" || len(sf.Feeds) != 2 {
+		t.Fatalf("sync: err=%q feeds=%d", sf.Err, len(sf.Feeds))
+	}
+
+	// 新实例(模拟重启)从磁盘载入,不触发网络也能拿到目录
+	m2 := NewFeedMarket(cachePath)
+	got := m2.Get(context.Background(), srcURL, "本地清单")
+	if len(got.Feeds) != 2 {
+		t.Fatalf("reloaded feeds = %d, want 2", len(got.Feeds))
+	}
+	if got.FetchedAt.IsZero() {
+		t.Fatal("fetched_at lost on reload")
 	}
 }
