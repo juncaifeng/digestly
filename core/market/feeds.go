@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -124,7 +125,10 @@ func fetch(ctx context.Context, client *http.Client, rawURL string) ([]byte, err
 	// 本地清单: 市场源可从本地 OPML 文件挂载(file:// 前缀)
 	if strings.HasPrefix(rawURL, "file://") {
 		path := strings.TrimPrefix(rawURL, "file://")
-		path = strings.TrimPrefix(path, "/") // file:///E:/x.opml → E:/x.opml
+		// POSIX 保留前导斜杠(/tmp/x);Windows 去掉盘符前的斜杠(file:///E:/x → E:/x)
+		if runtime.GOOS == "windows" {
+			path = strings.TrimPrefix(path, "/")
+		}
 		b, err := os.ReadFile(filepath.FromSlash(path))
 		if err != nil {
 			if os.IsNotExist(err) {
