@@ -14,37 +14,6 @@ export interface Feed {
   unread_count: number
 }
 
-export type ItemStatus = "pending" | "processing" | "processed" | "failed"
-
-// 管线单步骤执行记录(单篇任务的运行日志)
-export interface PipelineLog {
-  id: number
-  item_id: number
-  step: string
-  status: "ok" | "failed" | "skipped"
-  duration_ms: number
-  message: string
-  created_at: string
-}
-
-// 文章滑动窗口分块(总摘要在 Item.summary,块摘要在 chunks)
-export interface ItemChunk {
-  id: number
-  item_id: number
-  index: number
-  text: string
-  summary: string
-  entities: string[]
-}
-
-// 单篇提及的实体
-export interface ItemEntity {
-  id: number
-  name: string
-  type: string
-  count: number
-}
-
 export interface Item {
   id: number
   feed_id: number
@@ -53,11 +22,8 @@ export interface Item {
   link: string
   author: string
   content: string
-  summary: string
-  keywords: string
   source: string
   published_at: string | null
-  status: ItemStatus
   read: boolean
   archived: boolean
   tags?: string[]
@@ -102,9 +68,6 @@ export const api = {
     return req<Item[]>(`/items?${qs}`)
   },
   getItem: (id: number) => req<Item>(`/items/${id}`),
-  getItemChunks: (id: number) => req<ItemChunk[]>(`/items/${id}/chunks`),
-  getItemEntities: (id: number) => req<ItemEntity[]>(`/items/${id}/entities`),
-  getPipelineLogs: (id: number) => req<PipelineLog[]>(`/items/${id}/pipeline-logs`),
   markRead: (id: number, read: boolean) =>
     req<void>(`/items/${id}/read`, { method: "POST", body: JSON.stringify({ read }) }),
   archiveItem: (id: number, archived: boolean) =>
@@ -114,11 +77,6 @@ export const api = {
   addTag: (id: number, tag: string) =>
     req<void>(`/items/${id}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
   listCollectors: () => req<string[]>("/collectors"),
-  runPipeline: () => req<{ processed: number }>("/pipeline/run", { method: "POST" }),
-  retryItem: (id: number) =>
-    req<{ id: number; status: ItemStatus }>(`/items/${id}/retry`, { method: "POST" }),
-  retryPipeline: () =>
-    req<{ retried: number; processed: number }>("/pipeline/retry", { method: "POST" }),
 }
 
 export interface MarketEntry {
@@ -186,90 +144,6 @@ export const columnApi = {
     req<void>(`/items/${itemId}/columns/${columnId}`, { method: "DELETE" }),
 }
 
-export interface LLMConfig {
-  id: number
-  name: string
-  kind: "chat" | "embedding" // chat = 对话/生成; embedding = 向量模型
-  base_url: string
-  api_key: string // 列表接口返回掩码;提交时空串 = 不修改
-  model: string
-  temperature: number
-  max_tokens: number
-  is_default: boolean // 同 kind 内唯一
-  created_at: string
-  updated_at: string
-}
-
-export interface ArticleTemplate {
-  id: number
-  name: string
-  prompt: string
-  built_in: boolean
-  created_at: string
-}
-
-export interface Article {
-  id: number
-  creation_id: number
-  template_id: number
-  title: string
-  content: string
-  item_ids?: number[]
-  created_at: string
-  updated_at: string
-}
-
-export interface CreationSource {
-  kind: "column" | "feed"
-  ref_id: number
-}
-
-export interface Creation {
-  id: number
-  name: string
-  group_name: string
-  template_id: number
-  sources?: CreationSource[]
-  created_at: string
-}
-
-export interface ModelPreset {
-  id: string
-  label: string
-  context: string
-  max_output: string
-  thinking: string
-  vision: boolean
-  pricing: string
-  concurrency: number
-}
-
-export interface EmbeddingModel {
-  id: string
-  label: string
-  dimensions: number
-  note: string
-}
-
-// 向量模型供应商/本地运行时预设(独立于 LLM 供应商预设)
-export interface EmbeddingProviderPreset {
-  name: string
-  base_url: string
-  docs: string
-  note: string
-  local: boolean
-  models: EmbeddingModel[]
-}
-
-export interface ProviderPreset {
-  name: string
-  base_url: string
-  docs: string
-  note: string
-  models: ModelPreset[]
-}
-
-// MCP 入口地址(与 web 同一 server 的 /mcp; dev 下 vite 只代理 /api,故用绝对地址)
 export const mcpUrl = () => `http://127.0.0.1:${(window as any).__DIGESTLY_PORT__ ?? 3210}/mcp`
 
 export const mcpApi = {
@@ -296,16 +170,6 @@ export const mcpApi = {
   },
 }
 
-export const pipelineCfgApi = {
-  // 标注管线用的 LLM / 向量模型配置;0 = 跟随该 kind 默认
-  get: () => req<{ chat_config_id: number; embedding_config_id: number }>("/settings/pipeline"),
-  save: (chat_config_id: number, embedding_config_id: number) =>
-    req<{ chat_config_id: number; embedding_config_id: number }>("/settings/pipeline", {
-      method: "PUT",
-      body: JSON.stringify({ chat_config_id, embedding_config_id }),
-    }),
-}
-
 export const ingestApi = {
   // 采集入库限制(全局默认): 条数 + 天数,0 = 不限
   get: () => req<{ max_items: number; max_age_days: number }>("/settings/ingest"),
@@ -328,95 +192,6 @@ export const opmlApi = {
     req<{ added: number; skipped: number; columns_created: number; total: number }>("/opml/import", {
       method: "POST",
       body: JSON.stringify({ opml }),
-    }),
-}
-
-export interface PipelineStatus {
-  pending: number
-  processing: number
-  processed: number
-  failed: number
-  batch: { running: boolean; processed: number; total: number; last_error: string; last_done: string }
-  steps: string[]
-}
-
-export const pipelineApi = {
-  status: () => req<PipelineStatus>("/pipeline/status"),
-  run: (limit?: number) =>
-    req<{ started: boolean; limit: number }>("/pipeline/run", {
-      method: "POST",
-      body: JSON.stringify({ limit }),
-    }),
-  retry: () => req<{ started: boolean }>("/pipeline/retry", { method: "POST", body: "{}" }),
-  reprocess: (all: boolean) =>
-    req<{ started: boolean }>("/pipeline/reprocess", {
-      method: "POST",
-      body: JSON.stringify({ all }),
-    }),
-}
-
-export const llmApi = {
-  presets: () => req<ProviderPreset[]>("/llm/presets"),
-  embeddingPresets: () => req<EmbeddingProviderPreset[]>("/llm/embedding-presets"),
-  // 从供应商/本地运行时拉取可用模型列表(填好 base_url(+api key)后可用;也可手动填模型名)
-  fetchModels: (body: { id?: number; base_url?: string; api_key?: string }) =>
-    req<{ models: string[] }>("/llm/models", { method: "POST", body: JSON.stringify(body) }),
-  list: () => req<LLMConfig[]>("/llm/configs"),
-  create: (c: Partial<LLMConfig>) =>
-    req<LLMConfig>("/llm/configs", { method: "POST", body: JSON.stringify(c) }),
-  update: (id: number, c: Partial<LLMConfig>) =>
-    req<void>(`/llm/configs/${id}`, { method: "PATCH", body: JSON.stringify(c) }),
-  remove: (id: number) => req<void>(`/llm/configs/${id}`, { method: "DELETE" }),
-  setDefault: (id: number) =>
-    req<void>(`/llm/configs/${id}/default`, { method: "POST" }),
-  test: (body: { id?: number; kind?: string; base_url?: string; api_key?: string; model?: string }) =>
-    req<{ reply: string }>("/llm/test", { method: "POST", body: JSON.stringify(body) }),
-}
-
-export const templateApi = {
-  list: () => req<ArticleTemplate[]>("/templates"),
-  create: (t: { name: string; prompt: string }) =>
-    req<ArticleTemplate>("/templates", { method: "POST", body: JSON.stringify(t) }),
-  update: (id: number, t: { name: string; prompt: string }) =>
-    req<void>(`/templates/${id}`, { method: "PATCH", body: JSON.stringify(t) }),
-  remove: (id: number) => req<void>(`/templates/${id}`, { method: "DELETE" }),
-}
-
-export const articleApi = {
-  list: (creation_id: number) => req<Article[]>(`/articles?creation_id=${creation_id}`),
-  get: (id: number) => req<Article>(`/articles/${id}`),
-  update: (id: number, a: { title: string; content: string }) =>
-    req<void>(`/articles/${id}`, { method: "PATCH", body: JSON.stringify(a) }),
-  remove: (id: number) => req<void>(`/articles/${id}`, { method: "DELETE" }),
-}
-
-export interface CreationPlan {
-  creation: Creation
-  template: ArticleTemplate
-  feed_ids: number[]
-  force: boolean
-  item_ids: number[]
-  items: Item[]
-  history_titles: string[]
-  prompt: string
-}
-
-export const creationApi = {
-  list: () => req<Creation[]>("/creations"),
-  create: (c: { name: string; group_name?: string }) =>
-    req<Creation>("/creations", { method: "POST", body: JSON.stringify(c) }),
-  update: (id: number, c: Partial<Creation>) =>
-    req<void>(`/creations/${id}`, { method: "PATCH", body: JSON.stringify(c) }),
-  remove: (id: number) => req<void>(`/creations/${id}`, { method: "DELETE" }),
-  generate: (id: number, template_id?: number, force?: boolean) =>
-    req<Article>(`/creations/${id}/generate`, {
-      method: "POST",
-      body: JSON.stringify({ template_id, force }),
-    }),
-  plan: (id: number, template_id?: number, force?: boolean) =>
-    req<CreationPlan>(`/creations/${id}/plan`, {
-      method: "POST",
-      body: JSON.stringify({ template_id, force }),
     }),
 }
 

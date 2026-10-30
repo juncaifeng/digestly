@@ -1,26 +1,17 @@
 import { useCallback, useEffect, useState } from "react"
 import {
-  Archive, ChevronDown, ChevronRight, FolderOpen, FolderPlus, LayoutList, ListChecks,
-  Pencil, RefreshCw, Rss, Search, Settings, Settings2, Sparkles, Store, Trash2,
+  Archive, ChevronDown, ChevronRight, FolderOpen, FolderPlus, LayoutList,
+  Pencil, RefreshCw, Rss, Search, Settings, Settings2, Store, Trash2,
 } from "lucide-react"
 
-import { api, columnApi, type Column, type Feed, type Item, type ItemStatus } from "@/api/client"
-import { CreationCenterView } from "@/components/CreationCenterView"
+import { api, columnApi, type Column, type Feed, type Item } from "@/api/client"
 import { ItemDetail } from "@/components/ItemDetail"
 import { MarketView } from "@/components/MarketView"
 import { SettingsView } from "@/components/SettingsView"
-import { TasksView } from "@/components/TasksView"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-
-const statusVariant: Record<ItemStatus, "default" | "secondary" | "destructive" | "outline"> = {
-  pending: "secondary",
-  processing: "outline",
-  processed: "default",
-  failed: "destructive",
-}
 
 export default function App() {
   const [feeds, setFeeds] = useState<Feed[]>([])
@@ -30,7 +21,7 @@ export default function App() {
   const [activeColumn, setActiveColumn] = useState<number | undefined>()
   const [query, setQuery] = useState("")
   const [newFeed, setNewFeed] = useState({ title: "", url: "" })
-  const [view, setView] = useState<"articles" | "market" | "creation" | "tasks" | "settings">("articles")
+  const [view, setView] = useState<"articles" | "market" | "settings">("articles")
   const [selected, setSelected] = useState<Item | null>(null)
   const [newColumn, setNewColumn] = useState("")
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
@@ -191,33 +182,14 @@ export default function App() {
             <Store className="size-4" /> 市场
           </Button>
           <Button
-            variant={view === "creation" ? "secondary" : "ghost"}
-            size="sm"
-            className="flex-1"
-            onClick={() => setView("creation")}
-          >
-            <Sparkles className="size-4" /> 创作
-          </Button>
-          <Button
-            variant={view === "tasks" ? "secondary" : "ghost"}
-            size="sm"
-            className="flex-1"
-            onClick={() => setView("tasks")}
-          >
-            <ListChecks className="size-4" /> 任务
-          </Button>
-          <Button
             variant={view === "settings" ? "secondary" : "ghost"}
             size="sm"
-            className="flex-1"
+            className="col-span-2"
             onClick={() => setView("settings")}
           >
             <Settings className="size-4" /> 设置
           </Button>
         </div>
-        {view === "creation" && (
-          <div id="creation-tree-slot" className="flex-1 flex flex-col gap-2 overflow-hidden" />
-        )}
         {view === "articles" && (<>
         <div className="flex flex-col gap-2">
           <Input
@@ -335,10 +307,6 @@ export default function App() {
         <MarketView onInstalled={() => { loadFeeds(); loadColumns() }} />
       ) : view === "settings" ? (
         <SettingsView />
-      ) : view === "tasks" ? (
-        <TasksView />
-      ) : view === "creation" ? (
-        <CreationCenterView onGenerated={() => { loadItems(); loadFeeds() }} />
       ) : (
       <main className="flex-1 flex overflow-hidden">
       <div className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
@@ -347,7 +315,7 @@ export default function App() {
             <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
             <Input
               className="pl-8"
-              placeholder="全文搜索(标题 / 正文 / 摘要 / 关键词)…"
+              placeholder="全文搜索(标题 / 正文)…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -402,7 +370,6 @@ export default function App() {
                       {it.title || "(无标题)"}
                     </a>
                   </CardTitle>
-                  <Badge variant={statusVariant[it.status]}>{it.status}</Badge>
                   {it.source && <Badge variant="outline">{it.source}</Badge>}
                 </div>
                 <CardDescription>
@@ -410,15 +377,9 @@ export default function App() {
                   {it.published_at && new Date(it.published_at).toLocaleString()}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col gap-2">
-                {it.summary && <p className="text-sm text-muted-foreground">{it.summary}</p>}
-                {it.keywords && (
-                  <div className="flex gap-1 flex-wrap">
-                    {it.keywords.split(",").filter(Boolean).map((k) => (
-                      <Badge key={k} variant="secondary">{k}</Badge>
-                    ))}
-                  </div>
-                )}
+              <CardContent className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>#{it.id}</span>
+                <span className="truncate">{it.link}</span>
               </CardContent>
             </Card>
           ))}

@@ -6,14 +6,11 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
-	"sync"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/juncaifeng/digestly/core/collector"
 	"github.com/juncaifeng/digestly/core/model"
-	"github.com/juncaifeng/digestly/core/pipeline"
 	"github.com/juncaifeng/digestly/core/scheduler"
 	"github.com/juncaifeng/digestly/core/store"
 )
@@ -118,7 +115,7 @@ func registerFeedRoutes(r chi.Router, st *store.Store, sched *scheduler.Schedule
 	})
 }
 
-func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
+func registerItemRoutes(r chi.Router, st *store.Store) {
 	r.Get("/items", func(w http.ResponseWriter, req *http.Request) {
 		q := req.URL.Query()
 		feedID, _ := strconv.ParseInt(q.Get("feed_id"), 10, 64)
@@ -128,13 +125,12 @@ func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 		items, err := st.ListItems(store.ItemFilter{
 			FeedID:   feedID,
 			ColumnID: columnID,
-			Status: model.ItemStatus(q.Get("status")),
-			Tag:    q.Get("tag"),
-			Query:  q.Get("q"),
-			Unread: q.Get("unread") == "1",
+			Tag:      q.Get("tag"),
+			Query:    q.Get("q"),
+			Unread:   q.Get("unread") == "1",
 			Archived: q.Get("archived") == "1",
-			Limit:  limit,
-			Offset: offset,
+			Limit:    limit,
+			Offset:   offset,
 		})
 		if err != nil {
 			writeErr(w, 500, err)
@@ -150,42 +146,6 @@ func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 			return
 		}
 		writeJSON(w, 200, item)
-	})
-	// 滑动窗口摘要: 逐块原文 + 块摘要(总摘要在 item.summary)
-	r.Get("/items/{id}/chunks", func(w http.ResponseWriter, req *http.Request) {
-		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-		chunks, err := st.ItemChunks(id)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, chunks)
-	})
-	// 单篇的管线运行日志(每步骤执行记录,含历次重跑,新→旧)
-	r.Get("/items/{id}/pipeline-logs", func(w http.ResponseWriter, req *http.Request) {
-		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-		logs, err := st.PipelineLogs(id)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, logs)
-	})
-	// 单篇提及的实体(名称/类型/提及次数)
-	r.Get("/items/{id}/entities", func(w http.ResponseWriter, req *http.Request) {
-		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-		ents, err := st.ItemEntities(id)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		out := make([]map[string]any, 0, len(ents))
-		for _, e := range ents {
-			out = append(out, map[string]any{
-				"id": e.ID, "name": e.Name, "type": e.Type, "count": e.ItemCount,
-			})
-		}
-		writeJSON(w, 200, out)
 	})
 	r.Post("/items/{id}/read", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
@@ -211,20 +171,6 @@ func registerItemRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
 			return
 		}
 		w.WriteHeader(204)
-	})
-	// 标注失败重试: 退回 pending 并立即重跑该篇标注
-	r.Post("/items/{id}/retry", func(w http.ResponseWriter, req *http.Request) {
-		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-		if err := st.RetryItem(id); err != nil {
-			writeErr(w, 404, err)
-			return
-		}
-		status, err := chain.RunOne(id)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, map[string]any{"id": id, "status": status})
 	})
 	r.Post("/items/{id}/tags", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
@@ -253,126 +199,10 @@ func registerStatsRoutes(r chi.Router, st *store.Store) {
 	r.Get("/stats", func(w http.ResponseWriter, _ *http.Request) {
 		items, entries, bytes := st.CacheStats()
 		writeJSON(w, 200, map[string]any{
-			"index_items":      items,
-			"content_cached":   entries,
-			"content_bytes":    bytes,
+			"index_items":       items,
+			"content_cached":    entries,
+			"content_bytes":     bytes,
 			"content_cap_bytes": store.DefaultContentCacheBytes,
 		})
-	})
-}
-
-// pipelineRunner 管线后台执行器: 单飞(同一时刻只跑一个批次),状态供任务页轮询。
-type pipelineRunner struct {
-	mu        sync.Mutex
-	running   bool
-	processed int
-	total     int // 本批目标条数
-	lastErr   string
-	lastDone  time.Time
-}
-
-func (p *pipelineRunner) start(total int, fn func() (int, error)) bool {
-	p.mu.Lock()
-	if p.running {
-		p.mu.Unlock()
-		return false
-	}
-	p.running, p.processed, p.total, p.lastErr = true, 0, total, ""
-	p.mu.Unlock()
-	go func() {
-		n, err := fn()
-		p.mu.Lock()
-		p.running = false
-		p.processed = n
-		if err != nil {
-			p.lastErr = err.Error()
-		}
-		p.lastDone = time.Now()
-		p.mu.Unlock()
-	}()
-	return true
-}
-
-func (p *pipelineRunner) snapshot() map[string]any {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	last := ""
-	if !p.lastDone.IsZero() {
-		last = p.lastDone.Format(time.RFC3339)
-	}
-	return map[string]any{
-		"running": p.running, "processed": p.processed, "total": p.total,
-		"last_error": p.lastErr, "last_done": last,
-	}
-}
-
-func registerPipelineRoutes(r chi.Router, st *store.Store, chain *pipeline.Chain) {
-	runner := &pipelineRunner{}
-
-	// 管线状态: 各状态计数 + 批次执行态 + 步骤清单
-	r.Get("/pipeline/status", func(w http.ResponseWriter, _ *http.Request) {
-		counts, err := st.ItemStatusCounts()
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, map[string]any{
-			"pending":    counts[model.StatusPending],
-			"processing": counts[model.StatusProcessing],
-			"processed":  counts[model.StatusProcessed],
-			"failed":     counts[model.StatusFailed],
-			"batch":      runner.snapshot(),
-			"steps":      chain.StepNames(),
-		})
-	})
-
-	// 手动处理一批(后台执行,单飞;limit 缺省 500)
-	r.Post("/pipeline/run", func(w http.ResponseWriter, req *http.Request) {
-		var body struct {
-			Limit int `json:"limit"`
-		}
-		_ = json.NewDecoder(req.Body).Decode(&body)
-		limit := body.Limit
-		if limit <= 0 {
-			limit = 500
-		}
-		if !runner.start(limit, func() (int, error) { return chain.RunOnce(limit) }) {
-			writeErr(w, 409, fmt.Errorf("已有批次在执行中"))
-			return
-		}
-		writeJSON(w, 202, map[string]any{"started": true, "limit": limit})
-	})
-
-	// 批量重试标注失败的文章: failed 退回 pending 后跑一批
-	r.Post("/pipeline/retry", func(w http.ResponseWriter, _ *http.Request) {
-		if !runner.start(500, func() (int, error) {
-			if n, err := st.RetryFailed(); err != nil || n == 0 {
-				return 0, err
-			}
-			return chain.RunOnce(500)
-		}) {
-			writeErr(w, 409, fmt.Errorf("已有批次在执行中"))
-			return
-		}
-		writeJSON(w, 202, map[string]any{"started": true})
-	})
-
-	// 全部重跑: 退回 pending(清标注)后跑一批。LLM 步骤会产生费用,前端确认后调用
-	r.Post("/pipeline/reprocess", func(w http.ResponseWriter, req *http.Request) {
-		var body struct {
-			All bool `json:"all"` // true = 连 failed/processing 一起重置;false = 只重跑 processed
-		}
-		_ = json.NewDecoder(req.Body).Decode(&body)
-		if !runner.start(500, func() (int, error) {
-			n, err := st.ResetEnrichment(body.All)
-			if err != nil || n == 0 {
-				return 0, err
-			}
-			return chain.RunOnce(500)
-		}) {
-			writeErr(w, 409, fmt.Errorf("已有批次在执行中"))
-			return
-		}
-		writeJSON(w, 202, map[string]any{"started": true})
 	})
 }

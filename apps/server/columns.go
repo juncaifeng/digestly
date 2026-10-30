@@ -39,8 +39,7 @@ func registerColumnRoutes(r chi.Router, st *store.Store) {
 	r.Patch("/columns/{id}", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
 		var body struct {
-			Name       string `json:"name"`
-			TemplateID *int64 `json:"template_id"`
+			Name string `json:"name"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			writeErr(w, 400, err)
@@ -48,12 +47,6 @@ func registerColumnRoutes(r chi.Router, st *store.Store) {
 		}
 		if strings.TrimSpace(body.Name) != "" {
 			if err := st.RenameColumn(id, strings.TrimSpace(body.Name)); err != nil {
-				writeErr(w, 500, err)
-				return
-			}
-		}
-		if body.TemplateID != nil {
-			if err := st.SetColumnTemplate(id, *body.TemplateID); err != nil {
 				writeErr(w, 500, err)
 				return
 			}

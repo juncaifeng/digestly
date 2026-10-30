@@ -1,52 +1,19 @@
 import { useEffect, useState } from "react"
-import { Check, Copy, Cpu, Download, Pencil, Plus, RefreshCw, Save, Star, Trash2, Zap } from "lucide-react"
+import { Copy, Download, Plus, RefreshCw, Save, Zap } from "lucide-react"
 
-import { ingestApi, llmApi, mcpApi, opmlApi, pipelineCfgApi, type EmbeddingProviderPreset, type LLMConfig, type ProviderPreset } from "@/api/client"
+import { ingestApi, mcpApi, opmlApi } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
-// 设置页: LLM 供应商配置(大纲模板管理已挪到创作中心子菜单)
+// 设置页: MCP 服务 / 订阅导入导出 / 采集限制。
 export function SettingsView() {
-  const [configs, setConfigs] = useState<LLMConfig[]>([])
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
 
-  // LLM 配置表单(editing.id > 0 为编辑)
-  const emptyCfg = { name: "", kind: "chat" as "chat" | "embedding", base_url: "", api_key: "", model: "", temperature: 0.7, max_tokens: 4096 }
-  const [form, setForm] = useState<typeof emptyCfg & { id?: number }>(emptyCfg)
-  const [testing, setTesting] = useState(false)
-
-  // 供应商预设(内置 YAML + data/llm_providers 用户覆盖)
-  const [presets, setPresets] = useState<ProviderPreset[]>([])
-  const [presetName, setPresetName] = useState("")
-  // 向量模型预设(独立 schema,含本地运行时 Ollama / LM Studio 等)
-  const [embedPresets, setEmbedPresets] = useState<EmbeddingProviderPreset[]>([])
-  const [embedPresetName, setEmbedPresetName] = useState("")
-
   // 采集入库限制(全局默认)
   const [ingest, setIngest] = useState({ max_items: 50, max_age_days: 30 })
-
-  // 从接口拉取的可用模型列表(填好地址/密钥后拉取;也可手动填模型名)
-  const [fetchedModels, setFetchedModels] = useState<string[]>([])
-  const [fetchingModels, setFetchingModels] = useState(false)
-
-  // 标注管线配置(管线步骤用哪套 LLM / 向量模型;0 = 跟随默认)
-  const [pipeCfg, setPipeCfg] = useState({ chat_config_id: 0, embedding_config_id: 0 })
-
-  const fetchModelList = async () => {
-    setFetchingModels(true); setError(""); setNotice("")
-    try {
-      const r = await llmApi.fetchModels({ id: form.id, base_url: form.base_url, api_key: form.api_key })
-      setFetchedModels(r.models)
-      setNotice(`拉取到 ${r.models.length} 个模型 — 可在模型输入框下拉选择,或继续手动填写`)
-    } catch (e) {
-      setError(`拉取模型列表失败: ${(e as Error).message}`)
-    } finally {
-      setFetchingModels(false)
-    }
-  }
 
   // MCP 服务状态
   const [mcpState, setMcpState] = useState<{
@@ -65,71 +32,9 @@ export function SettingsView() {
   useEffect(() => { checkMcp() }, [])
 
   const load = () => {
-    llmApi.list().then(setConfigs).catch((e) => setError(`LLM 配置加载失败: ${e.message}`))
-    llmApi.presets().then(setPresets).catch(() => {})
-    llmApi.embeddingPresets().then(setEmbedPresets).catch(() => {})
     ingestApi.get().then(setIngest).catch(() => {})
-    pipelineCfgApi.get().then(setPipeCfg).catch(() => {})
   }
   useEffect(() => { void load() }, [])
-
-  const preset = presets.find((p) => p.name === presetName)
-  const embedPreset = embedPresets.find((p) => p.name === embedPresetName)
-  const presetModel = preset?.models.find((m) => m.id === form.model)
-
-  const applyPreset = (name: string) => {
-    setPresetName(name)
-    const p = presets.find((x) => x.name === name)
-    if (!p) return
-    setForm((f) => ({
-      ...f,
-      kind: "chat",
-      name: f.name || p.name,
-      base_url: p.base_url,
-      model: p.models[0]?.id ?? f.model,
-    }))
-  }
-
-  const applyEmbedPreset = (name: string) => {
-    setEmbedPresetName(name)
-    const p = embedPresets.find((x) => x.name === name)
-    if (!p) return
-    setForm((f) => ({
-      ...f,
-      kind: "embedding",
-      name: f.name || p.name,
-      base_url: p.base_url,
-      model: p.models[0]?.id ?? f.model,
-    }))
-  }
-
-  const saveConfig = async () => {
-    setError(""); setNotice("")
-    try {
-      if (form.id) {
-        await llmApi.update(form.id, form)
-      } else {
-        await llmApi.create(form)
-      }
-      setForm(emptyCfg)
-      load()
-    } catch (e) {
-      setError(`保存失败: ${(e as Error).message}`)
-    }
-  }
-
-  const testConfig = async () => {
-    setTesting(true)
-    setError(""); setNotice("")
-    try {
-      const r = await llmApi.test({ id: form.id, kind: form.kind, base_url: form.base_url, api_key: form.api_key, model: form.model })
-      setNotice(`连接成功,模型回复: ${r.reply}`)
-    } catch (e) {
-      setError(`连接失败: ${(e as Error).message}`)
-    } finally {
-      setTesting(false)
-    }
-  }
 
   const copyMcpUrl = async () => {
     try {
@@ -205,7 +110,7 @@ export function SettingsView() {
               </div>
               <p className="text-xs text-muted-foreground">
                 MCP 客户端(Claude Code / Kimi Code / Cursor 等)把该地址添加为 MCP server,
-                即可直接调用 digestly 的查询 / 阅读 / 创作工具(与 digestly-cli 同一套工具面)。
+                即可直接读取 digestly 的订阅源与文章(id + 原文),后续加工交给你的专门工具。
                 {mcpState.protocol && ` 协议版本: ${mcpState.protocol}`}
               </p>
               {mcpState.status === "error" && (
@@ -295,218 +200,6 @@ export function SettingsView() {
                 拉取时超过天数或超出条数(取最近)的不再入库——防止首次订阅整站 RSS 一次灌入上千条历史。
                 只影响新拉取,已入库不动(用归档管理存量);订阅行上的「历史上限」优先于全局条数。
               </p>
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* 标注管线: 选模型 */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold flex items-center gap-2">
-            <RefreshCw className="size-5" /> 标注管线
-            <Badge variant="secondary" className="ml-auto">摘要 / 实体 / 向量</Badge>
-          </h2>
-          <Card>
-            <CardContent className="flex flex-col gap-2 pt-4">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">LLM(滑窗摘要 / 实体关系抽取)</span>
-                  <select
-                    className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                    value={pipeCfg.chat_config_id}
-                    onChange={(e) => setPipeCfg({ ...pipeCfg, chat_config_id: Number(e.target.value) })}
-                  >
-                    <option value={0}>跟随默认(chat 默认配置)</option>
-                    {configs.filter((c) => c.kind !== "embedding").map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} · {c.model}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">向量模型(文章 / 实体向量化)</span>
-                  <select
-                    className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                    value={pipeCfg.embedding_config_id}
-                    onChange={(e) => setPipeCfg({ ...pipeCfg, embedding_config_id: Number(e.target.value) })}
-                  >
-                    <option value={0}>跟随默认(embedding 默认配置)</option>
-                    {configs.filter((c) => c.kind === "embedding").map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} · {c.model}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <Button size="sm" onClick={() => pipelineCfgApi.save(pipeCfg.chat_config_id, pipeCfg.embedding_config_id)
-                  .then(() => setNotice("标注管线配置已保存,下次处理生效"))
-                  .catch((e) => setError(`保存失败: ${(e as Error).message}`))}>
-                  <Save className="size-3.5" /> 保存
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                管线步骤(滑窗摘要 llm-summary / 实体图谱 llm-graph)用这里的配置;
-                与创作生成用的默认 chat 配置互相独立,可各选便宜/合适的模型。未选时跟随各自 kind 的默认配置。
-              </p>
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* LLM 配置 */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold flex items-center gap-2">
-            <Cpu className="size-5" /> LLM 配置
-          </h2>
-          {configs.map((c) => (
-            <Card key={c.id}>
-              <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <CardTitle className="text-base truncate">{c.name}</CardTitle>
-                  {c.kind === "embedding" && <Badge variant="secondary">向量</Badge>}
-                  {c.is_default && <Badge>默认</Badge>}
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  {!c.is_default && (
-                    <Button variant="ghost" size="icon" className="size-7" title="设为默认"
-                      onClick={() => llmApi.setDefault(c.id).then(load)}>
-                      <Star className="size-3.5" />
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="icon" className="size-7" title="编辑"
-                    onClick={() => setForm({ id: c.id, name: c.name, kind: (c.kind === "embedding" ? "embedding" : "chat"), base_url: c.base_url, api_key: "", model: c.model, temperature: c.temperature, max_tokens: c.max_tokens })}>
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="size-7" title="删除"
-                    onClick={() => window.confirm(`删除配置「${c.name}」?`) && llmApi.remove(c.id).then(load)}>
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground flex flex-col gap-0.5">
-                <span>{c.base_url} · {c.model}</span>
-                <span>temperature {c.temperature} · max_tokens {c.max_tokens} · key {c.api_key || "(未设置)"}</span>
-              </CardContent>
-            </Card>
-          ))}
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{form.id ? "编辑配置" : "新增配置"}</CardTitle>
-              <CardDescription>OpenAI 兼容接口;api_key 留空表示不修改已有密钥</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              <select
-                className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                value={form.kind}
-                onChange={(e) => setForm({ ...form, kind: e.target.value as "chat" | "embedding", model: "" })}
-              >
-                <option value="chat">对话 / 生成(chat)</option>
-                <option value="embedding">向量模型(embedding)</option>
-              </select>
-              {form.kind === "chat" && presets.length > 0 && (
-                <select
-                  className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                  value={presetName}
-                  onChange={(e) => applyPreset(e.target.value)}
-                >
-                  <option value="">从 LLM 供应商预设填充(DeepSeek / Kimi / 智谱 / 通义…)…</option>
-                  {presets.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-              )}
-              {form.kind === "embedding" && embedPresets.length > 0 && (
-                <select
-                  className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                  value={embedPresetName}
-                  onChange={(e) => applyEmbedPreset(e.target.value)}
-                >
-                  <option value="">从向量模型预设填充(OpenAI / 硅基流动 / Ollama 本地…)…</option>
-                  {embedPresets.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}{p.local ? " · 本地" : ""}</option>
-                  ))}
-                </select>
-              )}
-              {form.kind === "embedding" && embedPreset?.note && (
-                <p className="text-xs text-muted-foreground">{embedPreset.note}</p>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="名称,如 DeepSeek" value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                <div className="flex gap-1">
-                  <Input placeholder="模型,可手动填写或下拉选择" value={form.model} list="model-options"
-                    onChange={(e) => setForm({ ...form, model: e.target.value })} />
-                  <Button size="sm" variant="outline" className="shrink-0 h-9" disabled={fetchingModels || !form.base_url.trim()}
-                    title="填好 Base URL(和 API Key)后,从接口 GET /models 拉取可用模型列表"
-                    onClick={() => void fetchModelList()}>
-                    <RefreshCw className={"size-3.5 " + (fetchingModels ? "animate-spin" : "")} /> 拉取
-                  </Button>
-                </div>
-                <datalist id="model-options">
-                  {fetchedModels.map((m) => <option key={m} value={m} />)}
-                </datalist>
-              </div>
-              {form.kind === "embedding" && embedPreset && embedPreset.models.length > 0 && (
-                <select
-                  className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                  value={embedPreset.models.some((m) => m.id === form.model) ? form.model : ""}
-                  onChange={(e) => e.target.value && setForm({ ...form, model: e.target.value })}
-                >
-                  <option value="">选择 {embedPreset.name} 的向量模型…</option>
-                  {embedPreset.models.map((m) => (
-                    <option key={m.id} value={m.id}>{m.label || m.id}{m.dimensions ? ` · ${m.dimensions} 维` : ""}</option>
-                  ))}
-                </select>
-              )}
-              {form.kind === "chat" && preset && preset.models.length > 0 && (
-                <select
-                  className="border rounded-md h-9 px-2 text-sm bg-transparent"
-                  value={preset.models.some((m) => m.id === form.model) ? form.model : ""}
-                  onChange={(e) => e.target.value && setForm({ ...form, model: e.target.value })}
-                >
-                  <option value="">选择 {preset.name} 的模型…</option>
-                  {preset.models.map((m) => (
-                    <option key={m.id} value={m.id}>{m.label || m.id}</option>
-                  ))}
-                </select>
-              )}
-              {form.kind === "chat" && presetModel && (
-                <div className="text-xs text-muted-foreground border rounded-md p-2 flex flex-col gap-0.5">
-                  {presetModel.label && <span>版本: {presetModel.label}</span>}
-                  <span>
-                    {presetModel.context && `上下文 ${presetModel.context}`}
-                    {presetModel.max_output && ` · 最大输出 ${presetModel.max_output}`}
-                    {presetModel.concurrency > 0 && ` · 并发 ${presetModel.concurrency}`}
-                    {presetModel.vision && " · 支持图像理解"}
-                  </span>
-                  {presetModel.thinking && <span>思考模式: {presetModel.thinking}</span>}
-                  {presetModel.pricing && <pre className="whitespace-pre-wrap">{presetModel.pricing}</pre>}
-                </div>
-              )}
-              {form.kind === "chat" && preset?.note && <p className="text-xs text-muted-foreground">{preset.note}</p>}
-              <Input placeholder="Base URL,如 https://api.deepseek.com/v1" value={form.base_url}
-                onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-              <Input placeholder="API Key" type="password" value={form.api_key}
-                onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
-              {form.kind === "chat" && (
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="temperature,如 0.7" type="number" step="0.1" value={form.temperature}
-                    onChange={(e) => setForm({ ...form, temperature: parseFloat(e.target.value) || 0 })} />
-                  <Input placeholder="max_tokens,如 4096" type="number" value={form.max_tokens}
-                    onChange={(e) => setForm({ ...form, max_tokens: parseInt(e.target.value, 10) || 0 })} />
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button size="sm" onClick={saveConfig}
-                  disabled={!form.name.trim() || !form.base_url.trim() || !form.model.trim()}>
-                  {form.id ? <><Check className="size-3.5" /> 保存</> : <><Plus className="size-3.5" /> 添加</>}
-                </Button>
-                <Button size="sm" variant="outline" onClick={testConfig}
-                  disabled={testing || !form.base_url.trim() || !form.model.trim()}>
-                  <Zap className="size-3.5" /> {testing ? "测试中…" : "测试连接"}
-                </Button>
-                {form.id && (
-                  <Button size="sm" variant="ghost" onClick={() => setForm(emptyCfg)}>取消编辑</Button>
-                )}
-              </div>
             </CardContent>
           </Card>
         </section>

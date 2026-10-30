@@ -16,7 +16,6 @@ import (
 	"github.com/juncaifeng/digestly/core/collector"
 	"github.com/juncaifeng/digestly/core/market"
 	mcpapi "github.com/juncaifeng/digestly/core/mcp"
-	"github.com/juncaifeng/digestly/core/pipeline"
 	"github.com/juncaifeng/digestly/core/scheduler"
 	"github.com/juncaifeng/digestly/core/store"
 )
@@ -40,18 +39,11 @@ func main() {
 	}
 	defer st.Close()
 
-	chain := pipeline.NewChain(st,
-		pipeline.Source{Rules: map[string]string{}},
-		pipeline.Summary{MaxRunes: 200},
-		pipeline.NewLLMSummary(st),
-		pipeline.NewLLMGraph(st),
-		pipeline.Keywords{TopN: 5},
-	)
 	mc := market.NewClient(filepath.Join(*dataDir, "market"))
 	fm := market.NewFeedMarket()
 	mc.StartWarmup() // 市场清单后台预热,首次打开市场页零等待
 
-	sched := scheduler.New(st, chain)
+	sched := scheduler.New(st)
 	sched.Start()
 	defer sched.Stop()
 
@@ -64,17 +56,13 @@ func main() {
 	}))
 	r.Route("/api", func(r chi.Router) {
 		registerFeedRoutes(r, st, sched)
-		registerItemRoutes(r, st, chain)
+		registerItemRoutes(r, st)
 		registerCollectorRoutes(r)
 		registerStatsRoutes(r, st)
-		registerPipelineRoutes(r, st, chain)
 		registerMarketRoutes(r, mc, fm, st, collector.JSDir)
 			registerColumnRoutes(r, st)
 		registerSettingsRoutes(r, st, *dataDir)
-		registerArticleRoutes(r, st)
-		registerCreationRoutes(r, st)
 		registerOPMLRoutes(r, st)
-		registerGraphRoutes(r, st)
 	})
 
 	// MCP 入口(与 web / CLI 并列的第三种入口): streamable HTTP,工具面与 digestly-cli 一致。

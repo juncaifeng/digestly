@@ -86,7 +86,6 @@ func (c *jsCollector) Collect(ctx context.Context, src Source) ([]model.Item, er
 			Link:    get(r, "link"),
 			Author:  get(r, "author"),
 			Content: get(r, "content"),
-			Status:  model.StatusPending,
 		}
 		if it.GUID == "" {
 			it.GUID = it.Link

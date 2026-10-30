@@ -30,7 +30,6 @@ func (c *feedCollector) Collect(ctx context.Context, src Source) ([]model.Item, 
 			Link:        fi.Link,
 			Content:     fi.Content,
 			PublishedAt: fi.PublishedParsed,
-			Status:      model.StatusPending,
 		}
 		if it.GUID == "" {
 			it.GUID = fi.Link

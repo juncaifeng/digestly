@@ -1,6 +1,6 @@
 ---
 name: digestly-read
-description: 浏览/搜索 digestly 已采集的资讯文章(按订阅源、专栏、未读、关键词、时间筛选),以及查看文章详情、标记已读、归档。当用户说"看看最近有什么文章""搜一下某主题""某订阅源最近更新了什么"时使用。需要 digestly-cli(桌面端安装时勾选 PATH 后可用;否则用安装目录下的完整路径)。
+description: 浏览/搜索 digestly 已采集的文章(按订阅源、专栏、未读、关键词、时间筛选),以及查看全文、标记已读、归档。digestly 只负责采集与原文,段落/图片/音视频等素材加工交给下游工具。当用户说"看看最近有什么文章""搜一下某主题""某订阅源最近更新了什么"时使用。需要 digestly-cli(桌面端安装时勾选 PATH 后可用;否则用安装目录下的完整路径)。
 ---
 
 # digestly 浏览资讯
@@ -18,7 +18,7 @@ description: 浏览/搜索 digestly 已采集的资讯文章(按订阅源、专�
 | `-column <id 或名称>` | 按专栏(含订阅继承与手动收藏) |
 | `-unread` | 只看未读 |
 | `-since today\|7d\|30d\|2026-10-20` | 起始时间,`-until` 同理 |
-| `-tag <标签>` / `-status pending\|processed\|failed` | 附加筛选 |
+| `-tag <标签>` / `-since`/`-until` | 附加筛选(时间) |
 | `-limit 20 -offset 0` | 分页 |
 | `-format md\|text\|json` | 输出格式,默认 md(适合直接读);机器处理用 json |
 | `-full` | 带正文(默认只给摘要) |

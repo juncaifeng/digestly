@@ -95,9 +95,6 @@ func (ix *itemIndex) filter(f ItemFilter) []model.Item {
 		if f.FeedID > 0 && it.FeedID != f.FeedID {
 			continue
 		}
-		if f.Status != "" && it.Status != f.Status {
-			continue
-		}
 		if f.Unread && it.Read {
 			continue
 		}

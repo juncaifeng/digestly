@@ -1,5 +1,7 @@
 package store
 
+// schema 只保留职责域内的表: 订阅源、文章、全文索引、标签、专栏、市场源、应用设置。
+// 历史库中可能残留已移除功能(创作/管线/向量)的表与列,不再读写,无副作用。
 const schema = `
 CREATE TABLE IF NOT EXISTS feeds (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12,6 +14,7 @@ CREATE TABLE IF NOT EXISTS feeds (
   created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+-- summary/keywords/status/claimed_at 为历史列,保留以兼容旧库与 FTS 触发器,不再写入业务值
 CREATE TABLE IF NOT EXISTS items (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id      INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
@@ -53,69 +56,6 @@ CREATE TABLE IF NOT EXISTS tags (
   id   INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE
 );
--- 文章滑动窗口分块与逐块摘要(总摘要在 items.summary)
-CREATE TABLE IF NOT EXISTS item_chunks (
-  id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  idx     INTEGER NOT NULL,
-  text    TEXT NOT NULL DEFAULT '',
-  summary TEXT NOT NULL DEFAULT '',
-  entities TEXT NOT NULL DEFAULT '[]'
-);
-CREATE INDEX IF NOT EXISTS idx_item_chunks_item ON item_chunks(item_id, idx);
--- 管线执行日志: 每篇每步骤一行(ok/failed/skipped + 耗时 + 原因)
-CREATE TABLE IF NOT EXISTS pipeline_logs (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  step        TEXT NOT NULL,
-  status      TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL DEFAULT 0,
-  message     TEXT NOT NULL DEFAULT '',
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_pipeline_logs_item ON pipeline_logs(item_id, id);
--- 知识图谱: 实体(全局归一) / 实体提及 / 实体关系(三元组,带出处)
-CREATE TABLE IF NOT EXISTS entities (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL,
-  type       TEXT NOT NULL DEFAULT '',
-  normalized TEXT NOT NULL UNIQUE,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS item_entities (
-  item_id   INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  mention   TEXT NOT NULL DEFAULT '',
-  count     INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (item_id, entity_id)
-);
-CREATE TABLE IF NOT EXISTS relations (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  subject_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  predicate   TEXT NOT NULL,
-  object_id   INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  item_id     INTEGER NOT NULL DEFAULT 0,
-  confidence  REAL NOT NULL DEFAULT 1,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_relations_subject ON relations(subject_id);
-CREATE INDEX IF NOT EXISTS idx_relations_object ON relations(object_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_relations_spo ON relations(subject_id, predicate, object_id);
--- 向量(model 标识, float32 小端字节)
-CREATE TABLE IF NOT EXISTS item_embeddings (
-  item_id    INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
-  model      TEXT NOT NULL,
-  dims       INTEGER NOT NULL,
-  vec        BLOB NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS entity_embeddings (
-  entity_id  INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-  model      TEXT NOT NULL,
-  dims       INTEGER NOT NULL,
-  vec        BLOB NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
 -- 已挂载的第三方市场源(订阅源清单地址)
 CREATE TABLE IF NOT EXISTS market_sources (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,12 +83,10 @@ CREATE TABLE IF NOT EXISTS item_tags (
   PRIMARY KEY (item_id, tag_id)
 );
 -- 专栏: 订阅源的文件夹式分组(feeds.column_id 指向,一个订阅只属于一个专栏)
--- template_id 关联默认大纲模板(创作中心用)
 CREATE TABLE IF NOT EXISTS columns (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL UNIQUE,
   sort        INTEGER NOT NULL DEFAULT 0,
-  template_id INTEGER NOT NULL DEFAULT 0,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 -- 手动收藏: 文章 <-> 专栏(多对多);订阅继承关系不落表,经 feeds.column_id 推导
@@ -157,52 +95,5 @@ CREATE TABLE IF NOT EXISTS column_items (
   item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (column_id, item_id)
-);
--- LLM 供应商配置(OpenAI 兼容接口)
-CREATE TABLE IF NOT EXISTS llm_configs (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  name        TEXT NOT NULL,
-  kind        TEXT NOT NULL DEFAULT 'chat',
-  base_url    TEXT NOT NULL,
-  api_key     TEXT NOT NULL DEFAULT '',
-  model       TEXT NOT NULL,
-  temperature REAL NOT NULL DEFAULT 0.7,
-  max_tokens  INTEGER NOT NULL DEFAULT 4096,
-  is_default  INTEGER NOT NULL DEFAULT 0,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
--- 专栏文章生成模板,prompt 中 {{items}} 为素材占位符
-CREATE TABLE IF NOT EXISTS article_templates (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE,
-  prompt     TEXT NOT NULL,
-  built_in   INTEGER NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
--- 创作单元(一等公民): 素材源可混合专栏与单个订阅源;group_name 为所属文件夹
-CREATE TABLE IF NOT EXISTS creations (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  name        TEXT NOT NULL,
-  group_name  TEXT NOT NULL DEFAULT '',
-  template_id INTEGER NOT NULL DEFAULT 0,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS creation_sources (
-  creation_id INTEGER NOT NULL REFERENCES creations(id) ON DELETE CASCADE,
-  kind        TEXT NOT NULL, -- "column" | "feed"
-  ref_id      INTEGER NOT NULL,
-  PRIMARY KEY (creation_id, kind, ref_id)
-);
--- 生成的创作文章历史;creation_id 指向创作单元,item_ids 为消耗的素材 id(JSON 数组)
-CREATE TABLE IF NOT EXISTS articles (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  creation_id INTEGER NOT NULL DEFAULT 0 REFERENCES creations(id) ON DELETE CASCADE,
-  template_id INTEGER NOT NULL DEFAULT 0,
-  title       TEXT NOT NULL DEFAULT '',
-  content     TEXT NOT NULL DEFAULT '',
-  item_ids    TEXT NOT NULL DEFAULT '[]',
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `

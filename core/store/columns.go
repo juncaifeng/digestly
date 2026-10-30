@@ -52,9 +52,9 @@ func (s *Store) DeleteColumn(id int64) error {
 	return nil
 }
 
-// ListColumns 列出全部专栏(含默认模板、组内订阅数与收藏文章数)。
+// ListColumns 列出全部专栏(含组内订阅数与收藏文章数)。
 func (s *Store) ListColumns() ([]model.Column, error) {
-	rows, err := s.db.Query(`SELECT c.id,c.name,c.sort,c.template_id,c.created_at,
+	rows, err := s.db.Query(`SELECT c.id,c.name,c.sort,c.created_at,
 		(SELECT COUNT(*) FROM feeds f WHERE f.column_id=c.id),
 		(SELECT COUNT(*) FROM column_items ci WHERE ci.column_id=c.id)
 		FROM columns c ORDER BY c.sort, c.id`)
@@ -65,24 +65,12 @@ func (s *Store) ListColumns() ([]model.Column, error) {
 	out := []model.Column{}
 	for rows.Next() {
 		var c model.Column
-		if err := rows.Scan(&c.ID, &c.Name, &c.Sort, &c.TemplateID, &c.CreatedAt, &c.FeedCount, &c.ItemCount); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Sort, &c.CreatedAt, &c.FeedCount, &c.ItemCount); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
-}
-
-// SetColumnTemplate 设置专栏的默认大纲模板(0 = 清除)。
-func (s *Store) SetColumnTemplate(id int64, templateID int64) error {
-	res, err := s.db.Exec(`UPDATE columns SET template_id=? WHERE id=?`, templateID, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("专栏 %d 不存在", id)
-	}
-	return nil
 }
 
 // FindColumn 按名称或 id 找到专栏 id(CLI 用);0 表示不限。

@@ -54,15 +54,7 @@ func TestIndexWriteThrough(t *testing.T) {
 		}
 	}
 
-	// 标注写穿透
 	id := items[0].ID
-	if err := s.SetEnrichment(id, "sum", "k1,k2", "src", model.StatusProcessed); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := s.ListItems(ItemFilter{Status: model.StatusProcessed})
-	if len(got) != 1 || got[0].Summary != "sum" || got[0].Keywords != "k1,k2" || got[0].Source != "src" {
-		t.Fatalf("enrichment not in index: %+v", got)
-	}
 
 	// 已读写穿透
 	if err := s.MarkRead(id, true); err != nil {

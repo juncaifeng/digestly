@@ -6,7 +6,6 @@ require (
 	github.com/dop251/goja v0.0.0-20260926152631-39ec2650adc9
 	github.com/mmcdole/gofeed v1.5.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
 )
 

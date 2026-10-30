@@ -1,4 +1,4 @@
-// Package scheduler 按 feed 配置的间隔周期采集，并驱动标注管线。
+// Package scheduler 按 feed 配置的间隔周期采集文章。
 package scheduler
 
 import (
@@ -12,19 +12,17 @@ import (
 
 	"github.com/juncaifeng/digestly/core/collector"
 	"github.com/juncaifeng/digestly/core/model"
-	"github.com/juncaifeng/digestly/core/pipeline"
 	"github.com/juncaifeng/digestly/core/store"
 )
 
 type Scheduler struct {
-	store    *store.Store
-	pipeline *pipeline.Chain
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	store  *store.Store
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-func New(st *store.Store, pl *pipeline.Chain) *Scheduler {
-	return &Scheduler{store: st, pipeline: pl}
+func New(st *store.Store) *Scheduler {
+	return &Scheduler{store: st}
 }
 
 // Start 启动调度循环：每 30s 扫描一次到期 feed。
@@ -102,14 +100,15 @@ func (s *Scheduler) RefreshFeed(ctx context.Context, feedID int64) error {
 	}
 	// 入库前过滤: 超龄不收,超量只收最近 N 条(每源 max_items 优先于全局默认)
 	items = filterIngest(items, s.ingestLimits(feed), time.Now())
+	// 来源元数据: 采集器未给时用订阅源名兜底(阅读器展示/筛选用)
+	for i := range items {
+		if items[i].Source == "" {
+			items[i].Source = feed.Title
+		}
+	}
 	n, err := s.store.InsertItems(items)
 	if err != nil {
 		return err
-	}
-	if n > 0 {
-		if _, err := s.pipeline.RunOnce(200); err != nil {
-			log.Printf("scheduler: pipeline: %v", err)
-		}
 	}
 	log.Printf("feed %d(%s): %d new items", feed.ID, feed.Title, n)
 	return nil
