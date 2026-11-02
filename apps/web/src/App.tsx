@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Archive, ChevronDown, ChevronRight, FolderOpen, FolderPlus, LayoutList,
   Pencil, RefreshCw, Rss, Search, Settings, Settings2, Store, Trash2,
@@ -28,15 +28,35 @@ export default function App() {
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null)
   const [dragOver, setDragOver] = useState<number | "ungrouped" | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  // 服务未就绪(桌面端冷启动/后端重启)时: 提示 + 3s 自动重试,不让界面静默变空
+  const [loadErr, setLoadErr] = useState("")
+  const retryRef = useRef<number | null>(null)
+  const retryFn = useRef<() => void>(() => {})
 
-  const loadFeeds = useCallback(() => api.listFeeds().then(setFeeds).catch(console.error), [])
-  const loadColumns = useCallback(() => columnApi.list().then(setColumns).catch(console.error), [])
+  const scheduleRetry = useCallback(() => {
+    if (retryRef.current != null) return
+    retryRef.current = window.setTimeout(() => {
+      retryRef.current = null
+      retryFn.current()
+    }, 3000)
+  }, [])
+
+  const loadFeeds = useCallback(
+    () => api.listFeeds().then((fs) => { setFeeds(fs); setLoadErr("") }).catch((e) => { setLoadErr((e as Error).message); scheduleRetry() }),
+    [scheduleRetry],
+  )
+  const loadColumns = useCallback(
+    () => columnApi.list().then(setColumns).catch(console.error),
+    [],
+  )
   const loadItems = useCallback(() => {
     api
       .listItems({ feed_id: activeFeed, column_id: activeColumn, q: query, limit: 100, archived: showArchived ? 1 : undefined })
-      .then(setItems)
-      .catch(console.error)
-  }, [activeFeed, activeColumn, query, showArchived])
+      .then((its) => { setItems(its); setLoadErr("") })
+      .catch((e) => { setLoadErr((e as Error).message); scheduleRetry() })
+  }, [activeFeed, activeColumn, query, showArchived, scheduleRetry])
+
+  useEffect(() => { retryFn.current = () => { loadFeeds(); loadColumns(); loadItems() } })
 
   useEffect(() => { void loadFeeds(); void loadColumns() }, [loadFeeds, loadColumns])
   useEffect(() => { void loadItems() }, [loadItems])
@@ -310,6 +330,11 @@ export default function App() {
       ) : (
       <main className="flex-1 flex overflow-hidden">
       <div className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
+        {loadErr && (
+          <p className="text-sm text-destructive">
+            服务未就绪({loadErr}),3 秒后自动重试…
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
