@@ -19,6 +19,9 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
   const [activeSource, setActiveSource] = useState<number | undefined>()
   // 已订阅状态: 本地标记 + 已有订阅源 URL(刷新后依然正确显示)
   const [subscribed, setSubscribed] = useState<Record<string, boolean>>({})
+  // 分页: 过滤后分页展示,避免大清单一次渲染几百张卡片
+  const PAGE_SIZE = 24
+  const [page, setPage] = useState(1)
 
   const load = () => {
     marketApi
@@ -108,6 +111,11 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
         f.title.toLowerCase().includes(query.toLowerCase()) ||
         f.feed_url.toLowerCase().includes(query.toLowerCase()))
   )
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const current = Math.min(page, pageCount)
+  const paged = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE)
+  useEffect(() => { setPage(1) }, [query, activeTag, activeSource])
 
   return (
     <div className="flex-1 flex flex-col p-4 gap-3 overflow-hidden">
@@ -207,7 +215,7 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
       )}
 
       <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start pr-1">
-        {filtered.map((f) => (
+        {paged.map((f) => (
           <Card key={f.feed_url}>
             <CardHeader>
               <CardTitle className="text-base">{f.title}</CardTitle>
@@ -237,6 +245,19 @@ export function SourceMarket({ onSubscribed }: { onSubscribed: () => void }) {
               ? "还没有市场源 — 粘贴一个含 feeds.opml / feeds.json 的地址挂载试试"
               : "没有匹配的订阅源"}
           </p>
+        )}
+        {filtered.length > PAGE_SIZE && (
+          <div className="col-span-full flex items-center justify-center gap-2 py-2 text-sm">
+            <Button size="sm" variant="outline" disabled={current <= 1} onClick={() => setPage(current - 1)}>
+              上一页
+            </Button>
+            <span className="text-muted-foreground">
+              第 {current} / {pageCount} 页 · 共 {filtered.length} 个源
+            </span>
+            <Button size="sm" variant="outline" disabled={current >= pageCount} onClick={() => setPage(current + 1)}>
+              下一页
+            </Button>
+          </div>
         )}
       </div>
     </div>
