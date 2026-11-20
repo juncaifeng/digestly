@@ -77,6 +77,7 @@ export const api = {
   addTag: (id: number, tag: string) =>
     req<void>(`/items/${id}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
   listCollectors: () => req<string[]>("/collectors"),
+  getStats: () => req<{ index_items: number; content_cached: number; content_bytes: number; content_cap_bytes: number }>("/stats"),
 }
 
 export interface MarketEntry {
