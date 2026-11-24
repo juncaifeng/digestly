@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Check, Pencil, Play, Sparkles } from "lucide-react"
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Pencil, Play, Plus, Save, Sparkles, Trash2, X } from "lucide-react"
 
 import { api, type Item } from "@/api/client"
 import type { ShotFlowTemplate } from "@/components/ShotFlowTemplates"
@@ -27,6 +27,13 @@ export function ShotFlowAssembly({ topicId, template, onBack }: {
   const [slots, setSlots] = useState<Slot[]>([])
   const [current, setCurrent] = useState("s1")
   const [reviewed, setReviewed] = useState(false)
+  const [managing, setManaging] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [editLabel, setEditLabel] = useState("")
+  const [editSecs, setEditSecs] = useState("10")
+  const [adding, setAdding] = useState(false)
+  const [newLabel, setNewLabel] = useState("")
+  const [newSecs, setNewSecs] = useState("10")
 
   useEffect(() => {
     Promise.all([
@@ -61,6 +68,9 @@ export function ShotFlowAssembly({ topicId, template, onBack }: {
       setSlots(nextSlots)
       setCurrent(nextSlots.find((slot) => slot.state === "editing")?.key ?? nextSlots[0]?.key ?? "")
       setReviewed(false)
+      setManaging(false)
+      setEditing(null)
+      setAdding(false)
     }).catch(() => {})
   }, [topicId, template])
 
@@ -77,6 +87,60 @@ export function ShotFlowAssembly({ topicId, template, onBack }: {
   }
 
   const totalSecs = useMemo(() => slots.reduce((n, s) => n + s.secs, 0), [slots])
+  const editingSlot = slots.find((slot) => slot.key === editing)
+  const renumber = (all: Slot[]) => all.map((slot, index) => ({
+    ...slot,
+    label: `${String(index).padStart(2, "0")} ${slot.label.replace(/^\d+\s*/, "")}`,
+  }))
+  const beginEdit = (slot: Slot) => {
+    setEditing(slot.key)
+    setEditLabel(slot.label.replace(/^\d+\s*/, ""))
+    setEditSecs(String(slot.secs))
+    setAdding(false)
+  }
+  const saveEdit = () => {
+    const secs = Number(editSecs)
+    if (!editing || !editLabel.trim() || !Number.isFinite(secs) || secs <= 0) return
+    setSlots(renumber(slots.map((slot) => slot.key === editing
+      ? { ...slot, label: editLabel.trim(), secs }
+      : slot
+    )))
+    setEditing(null)
+  }
+  const removeSlot = (key: string) => {
+    if (slots.length <= 1) return
+    const index = slots.findIndex((slot) => slot.key === key)
+    const next = renumber(slots.filter((slot) => slot.key !== key))
+    setSlots(next)
+    if (current === key) setCurrent(next[Math.min(index, next.length - 1)]?.key ?? "")
+    if (editing === key) setEditing(null)
+  }
+  const moveCurrent = (direction: -1 | 1) => {
+    const index = slots.findIndex((slot) => slot.key === current)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= slots.length) return
+    const next = [...slots]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    setSlots(renumber(next))
+  }
+  const addSlot = () => {
+    const secs = Number(newSecs)
+    if (!newLabel.trim() || !Number.isFinite(secs) || secs <= 0) return
+    const slot: Slot = {
+      key: `custom-${Date.now()}`,
+      label: newLabel.trim(),
+      secs,
+      state: "todo",
+      item: items[0],
+    }
+    const next = [...slots]
+    next.splice(Math.max(0, next.length - 1), 0, slot)
+    setSlots(renumber(next))
+    setCurrent(slot.key)
+    setNewLabel("")
+    setNewSecs("10")
+    setAdding(false)
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -105,27 +169,90 @@ export function ShotFlowAssembly({ topicId, template, onBack }: {
             <div className="text-xs text-violet-300 mt-1 font-mono">&lt;{template.composition}&gt;</div>
             <div className="text-xs text-muted-foreground mt-1">{template.structure}</div>
           </div>
-          <div className="text-xs text-muted-foreground text-right">调整顺序</div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>槽位 · {slots.length}</span>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs"
+              onClick={() => { setManaging(!managing); setEditing(null); setAdding(false) }}>
+              {managing ? "完成" : "管理"}
+            </Button>
+          </div>
+          {managing && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="flex-1">移动当前槽位</span>
+              <Button size="icon" variant="outline" className="size-6" title="上移"
+                disabled={slots.findIndex((slot) => slot.key === current) <= 0}
+                onClick={() => moveCurrent(-1)}>
+                <ArrowUp className="size-3" />
+              </Button>
+              <Button size="icon" variant="outline" className="size-6" title="下移"
+                disabled={slots.findIndex((slot) => slot.key === current) === slots.length - 1}
+                onClick={() => moveCurrent(1)}>
+                <ArrowDown className="size-3" />
+              </Button>
+            </div>
+          )}
           {slots.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setCurrent(s.key)}
-              className={"flex items-center gap-2 border rounded-md px-2.5 py-2 text-left text-sm " +
-                (current === s.key ? "border-violet-500 bg-violet-950/30" : "border-border/60 hover:bg-accent/50")}
-            >
-              <span className="text-xs text-muted-foreground font-mono">{s.label.split(" ")[0]}</span>
-              <span className="flex-1 truncate">{s.label.split(" ").slice(1).join(" ")}</span>
-              <span className="text-xs text-muted-foreground">{s.secs}s</span>
-              {s.state === "done" ? (
-                <span className="size-3.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center">✓</span>
-              ) : s.state === "editing" ? (
-                <Pencil className="size-3 text-violet-300" />
-              ) : (
-                <span className="size-3.5 rounded-full border border-muted-foreground/40" />
+            <div key={s.key} className={"flex items-center gap-1 border rounded-md p-1.5 text-sm " +
+              (current === s.key ? "border-violet-500 bg-violet-950/30" : "border-border/60 hover:bg-accent/50")}>
+              <button type="button" onClick={() => setCurrent(s.key)}
+                className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                <span className="text-xs text-muted-foreground font-mono">{s.label.split(" ")[0]}</span>
+                <span className="flex-1 truncate">{s.label.split(" ").slice(1).join(" ")}</span>
+                <span className="text-xs text-muted-foreground">{s.secs}s</span>
+                {s.state === "done" ? (
+                  <span className="size-3.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center">✓</span>
+                ) : s.state === "editing" ? (
+                  <Pencil className="size-3 text-violet-300" />
+                ) : (
+                  <span className="size-3.5 rounded-full border border-muted-foreground/40" />
+                )}
+              </button>
+              {managing && (
+                <div className="flex shrink-0">
+                  <Button size="icon" variant="ghost" className="size-6" title="编辑槽位" onClick={() => beginEdit(s)}>
+                    <Pencil className="size-3" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="size-6 text-destructive" title="删除槽位"
+                    disabled={slots.length <= 1} onClick={() => removeSlot(s.key)}>
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
               )}
-            </button>
+            </div>
           ))}
-          <Button size="sm" variant="ghost" className="justify-start text-muted-foreground">+ 添加快讯槽位</Button>
+          {editingSlot && managing && (
+            <form className="border rounded-md p-2 flex flex-col gap-2" onSubmit={(event) => { event.preventDefault(); saveEdit() }}>
+              <div className="text-xs text-muted-foreground">编辑槽位</div>
+              <Input className="h-7 text-xs" aria-label="槽位名称" value={editLabel} onChange={(event) => setEditLabel(event.target.value)} />
+              <div className="flex gap-1.5">
+                <Input className="h-7 text-xs" aria-label="槽位时长（秒）" type="number" min="1" step="1" value={editSecs}
+                  onChange={(event) => setEditSecs(event.target.value)} />
+                <Button size="sm" className="h-7" type="submit"><Save className="size-3" />保存</Button>
+                <Button size="icon" variant="ghost" className="size-7" type="button" title="取消" onClick={() => setEditing(null)}>
+                  <X className="size-3" />
+                </Button>
+              </div>
+            </form>
+          )}
+          <Button size="sm" variant="ghost" className="justify-start text-muted-foreground"
+            onClick={() => { setManaging(true); setAdding(true); setEditing(null) }}>
+            <Plus className="size-3.5" /> 添加槽位
+          </Button>
+          {adding && (
+            <form className="border border-violet-500/40 rounded-md p-2 flex flex-col gap-2" onSubmit={(event) => { event.preventDefault(); addSlot() }}>
+              <div className="text-xs text-violet-300">新增槽位</div>
+              <Input className="h-7 text-xs" aria-label="新槽位名称" placeholder="槽位名称" value={newLabel}
+                onChange={(event) => setNewLabel(event.target.value)} autoFocus />
+              <div className="flex gap-1.5">
+                <Input className="h-7 text-xs" aria-label="新槽位时长（秒）" type="number" min="1" step="1" value={newSecs}
+                  onChange={(event) => setNewSecs(event.target.value)} />
+                <Button size="sm" className="h-7" type="submit"><Plus className="size-3" />添加</Button>
+                <Button size="icon" variant="ghost" className="size-7" type="button" title="取消" onClick={() => setAdding(false)}>
+                  <X className="size-3" />
+                </Button>
+              </div>
+            </form>
+          )}
           <Card className="mt-auto border-violet-500/30 bg-violet-950/20">
             <CardContent className="p-3">
               <div className="flex items-center gap-1.5 text-xs text-violet-200">

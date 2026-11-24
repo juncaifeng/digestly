@@ -1,21 +1,16 @@
 import { useState } from "react"
 import {
-  Activity, FolderOpen, LayoutTemplate, ListVideo, Settings as SettingsIcon,
-  Store, User, Zap,
+  Activity, Database, FolderOpen, LayoutTemplate, ListVideo, Zap,
 } from "lucide-react"
-
-import { ReaderView } from "@/components/ReaderView"
-import { SettingsView } from "@/components/SettingsView"
 import { ShotFlowAnalytics } from "@/components/ShotFlowAnalytics"
 import { ShotFlowAssembly } from "@/components/ShotFlowAssembly"
 import { ShotFlowAssets } from "@/components/ShotFlowAssets"
 import { ShotFlowRender } from "@/components/ShotFlowRender"
 import { ShotFlowTemplates, type ShotFlowTemplate } from "@/components/ShotFlowTemplates"
 import { ShotFlowTopics } from "@/components/ShotFlowTopics"
-import { MarketView } from "@/components/MarketView"
 import { Button } from "@/components/ui/button"
 
-type View = "topics" | "templates" | "assembly" | "assets" | "render" | "analytics" | "reader" | "market" | "settings"
+type View = "topics" | "templates" | "assembly" | "assets" | "render" | "analytics"
 
 const navItems: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: "topics", label: "选题 · 信息源", icon: <ListVideo className="size-4" /> },
@@ -26,7 +21,7 @@ const navItems: { key: View; label: string; icon: React.ReactNode }[] = [
 ]
 
 // ShotFlow 主壳: 选题 → 模板库 → 装配 → 素材 → 渲染发布 → 复盘;
-// 保留 digestly 阅读器(阅读)与市场/设置作为辅助入口。
+// digestly 仅作为只读内容来源,订阅管理留在独立产品内。
 export default function App() {
   const [view, setView] = useState<View>("topics")
   const [topicId, setTopicId] = useState<number | undefined>()
@@ -78,29 +73,15 @@ export default function App() {
           <div className="flex justify-between"><span>干货清单</span><span className="text-muted-foreground">不定期</span></div>
         </div>
 
-        <div className="border-t pt-2 flex flex-col gap-0.5">
-          <Button variant={view === "reader" ? "secondary" : "ghost"} size="sm" className="justify-start"
-            onClick={() => setView("reader")}>
-            <ListVideo className="size-4" /> 阅读
-          </Button>
-          <Button variant={view === "market" ? "secondary" : "ghost"} size="sm" className="justify-start"
-            onClick={() => setView("market")}>
-            <Store className="size-4" /> 市场
-          </Button>
-        </div>
-
         <div className="mt-auto border-t pt-3 flex items-center gap-2">
           <span className="size-7 rounded-full bg-violet-600/30 text-violet-300 flex items-center justify-center text-xs">林</span>
           <div className="flex-1 min-w-0">
             <div className="text-sm truncate">林小河</div>
             <div className="text-xs text-muted-foreground">SRE · 平台组</div>
           </div>
-          <Button variant="ghost" size="icon" className="size-7" title="设置" onClick={() => setView("settings")}>
-            <SettingsIcon className="size-4" />
-          </Button>
         </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <User className="size-3" /> 本地工作区 · 数据不出本机
+        <div className="flex items-center gap-1 text-xs text-muted-foreground" title="ShotFlow 只读取 digestly 已采集的文章，不包含订阅管理">
+          <Database className="size-3" /> 内容来源 · digestly（只读）
         </div>
       </aside>
 
@@ -114,14 +95,8 @@ export default function App() {
         <ShotFlowAssets />
       ) : view === "render" ? (
         <ShotFlowRender />
-      ) : view === "analytics" ? (
-        <ShotFlowAnalytics />
-      ) : view === "reader" ? (
-        <ReaderView />
-      ) : view === "market" ? (
-        <MarketView onInstalled={() => {}} />
       ) : (
-        <SettingsView />
+        <ShotFlowAnalytics />
       )}
     </div>
   )
