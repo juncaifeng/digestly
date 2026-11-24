@@ -36,8 +36,8 @@ export default function App() {
   }
 
   return (
-    <div className="dark flex h-screen bg-background text-foreground">
-      <aside className="w-64 shrink-0 border-r flex flex-col p-4 gap-3">
+    <div className="dark shotflow-shell flex h-screen bg-background text-foreground">
+      <aside className="shotflow-sidebar w-64 shrink-0 border-r flex flex-col p-4 gap-3">
         <div className="flex items-center gap-2 text-violet-400">
           <Zap className="size-5" />
           <h1 className="text-lg font-bold">ShotFlow</h1>

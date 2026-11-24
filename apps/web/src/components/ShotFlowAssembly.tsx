@@ -112,7 +112,7 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
         </aside>
 
         {/* 中: 当前段编辑 */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        <div className="flex-1 min-w-0 overflow-y-auto p-4 flex flex-col gap-4">
           {slot && (
             <>
               <div className="flex items-center gap-2 flex-wrap">
@@ -141,20 +141,20 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4 flex flex-col gap-3">
+              <Card className="min-w-0">
+                <CardContent className="min-w-0 p-4 flex flex-col gap-3">
                   <div className="text-sm font-medium">画面内容 · 模板槽位</div>
-                  <div className="flex gap-3">
+                  <div className="min-w-0 flex gap-3">
                     <div className="w-44 shrink-0 rounded-md bg-gradient-to-br from-violet-600/30 to-emerald-600/20 border border-border/60 flex items-center justify-center text-xs text-center p-2">
                       自动截图 · 08:02
                     </div>
-                    <div className="flex-1 flex flex-col gap-2">
+                    <div className="flex-1 min-w-0 flex flex-col gap-2">
                       <label className="text-xs text-muted-foreground">画面标题</label>
                       <Input value={draft.title} onChange={(e) => updateDraft({ title: e.target.value })} />
                       <label className="text-xs text-muted-foreground">核心要点</label>
                       <Input value={draft.points} onChange={(e) => updateDraft({ points: e.target.value })} />
-                      <div className="flex items-center gap-2 text-xs">
-                        <a className="text-violet-300 truncate" href={item?.link} target="_blank" rel="noreferrer">
+                      <div className="min-w-0 flex items-center gap-2 text-xs">
+                        <a className="min-w-0 flex-1 truncate text-violet-300" href={item?.link} target="_blank" rel="noreferrer" title={item?.link}>
                           {item?.link}
                         </a>
                         <Button size="sm" variant="ghost" className="ml-auto text-xs shrink-0">替换截图</Button>
