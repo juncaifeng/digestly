@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
-import { Check, Pencil, Play, Sparkles } from "lucide-react"
+import { ArrowLeft, Check, Pencil, Play, Sparkles } from "lucide-react"
 
 import { api, type Item } from "@/api/client"
+import type { ShotFlowTemplate } from "@/components/ShotFlowTemplates"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -17,7 +18,11 @@ const draftFor = (item: Item): Draft => ({
 })
 
 // ShotFlow · 模板装配: 槽位 → 文案 → 画面 → 配音 → 预览。
-export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
+export function ShotFlowAssembly({ topicId, template, onBack }: {
+  topicId?: number
+  template: ShotFlowTemplate
+  onBack: () => void
+}) {
   const [items, setItems] = useState<Item[]>([])
   const [slots, setSlots] = useState<Slot[]>([])
   const [current, setCurrent] = useState("s1")
@@ -30,17 +35,34 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
     ]).then(([its, selected]) => {
       const picked = selected ?? its[0]
       const rest = its.filter((it) => it.id !== picked?.id)
-      setItems(picked ? [picked, ...rest] : its)
-      setSlots([
-        { key: "hook", label: "00 Hook 开场", secs: 5, state: "done" },
-        { key: "s1", label: "01 快讯① GPT-5.1", secs: 12, state: "editing", item: picked },
-        { key: "s2", label: "02 快讯② Claude API", secs: 12, state: "done", item: rest[0] },
-        { key: "s3", label: "03 快讯③ Qwen3", secs: 12, state: "done", item: rest[1] },
-        { key: "view", label: "04 观点收尾", secs: 8, state: "todo" },
-        { key: "cta", label: "05 CTA 关注", secs: 4, state: "done" },
-      ])
+      const contentItems = picked ? [picked, ...rest] : its
+      let itemIndex = 0
+      let editingAssigned = false
+      let todoAssigned = false
+      const nextSlots = template.slotPlan.map((plan, index): Slot => {
+        const slotItem = plan.kind === "item" ? contentItems[itemIndex++] : undefined
+        let state: Slot["state"] = "done"
+        if (plan.kind === "item" && !editingAssigned) {
+          state = "editing"
+          editingAssigned = true
+        } else if (plan.kind === "outro" && !todoAssigned) {
+          state = "todo"
+          todoAssigned = true
+        }
+        return {
+          key: `slot-${index}`,
+          label: `${String(index).padStart(2, "0")} ${plan.label}`,
+          secs: plan.secs,
+          state,
+          item: slotItem,
+        }
+      })
+      setItems(contentItems)
+      setSlots(nextSlots)
+      setCurrent(nextSlots.find((slot) => slot.state === "editing")?.key ?? nextSlots[0]?.key ?? "")
+      setReviewed(false)
     }).catch(() => {})
-  }, [topicId])
+  }, [topicId, template])
 
   const slot = slots.find((s) => s.key === current)
   const item = slot?.item ?? items[0]
@@ -59,10 +81,13 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-2.5 border-b flex-wrap">
+        <Button size="sm" variant="ghost" onClick={onBack}>
+          <ArrowLeft className="size-3.5" /> 模板库
+        </Button>
         <h2 className="font-semibold">每日 AI 快讯 · EP12</h2>
         <Badge variant="secondary" className="text-violet-300 border-violet-500/30">装配中</Badge>
         <span className="text-xs text-muted-foreground">
-          模板装配 · {slots.length} 个槽位 · {totalSecs.toFixed(1)}s · 文案审校 2 / 6
+          {template.name} {template.version} · {slots.length} 个槽位 · {totalSecs.toFixed(1)}s · 文案审校 2 / {slots.length}
         </span>
         <div className="ml-auto flex gap-2">
           <Button size="sm" variant="outline"><Sparkles className="size-3.5" /> AI 重写本段</Button>
@@ -76,9 +101,9 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
         {/* 左: 本期结构槽位 */}
         <aside className="w-64 shrink-0 border-r overflow-y-auto p-3 flex flex-col gap-2">
           <div className="border rounded-md p-2.5">
-            <div className="text-sm font-medium">每日 AI 快讯</div>
-            <div className="text-xs text-violet-300 mt-1 font-mono">&lt;NewsFlash v3&gt;</div>
-            <div className="text-xs text-muted-foreground mt-1">开场 → N 条快讯 → 观点 → CTA</div>
+            <div className="text-sm font-medium">{template.name} {template.version}</div>
+            <div className="text-xs text-violet-300 mt-1 font-mono">&lt;{template.composition}&gt;</div>
+            <div className="text-xs text-muted-foreground mt-1">{template.structure}</div>
           </div>
           <div className="text-xs text-muted-foreground text-right">调整顺序</div>
           {slots.map((s) => (
@@ -118,7 +143,9 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-semibold">{slot.label.replace(/^\d+\s*/, "")}</h3>
                 <Badge variant="secondary" className="text-amber-400 border-amber-500/30">文案待审</Badge>
-                <span className="ml-auto text-xs text-muted-foreground">选题 #1 · OpenAI Blog</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {topicId ? `选题 #${topicId}` : "未关联选题"} · {item?.source ?? "OpenAI Blog"}
+                </span>
               </div>
 
               <Card>
@@ -196,7 +223,7 @@ export function ShotFlowAssembly({ topicId }: { topicId?: number }) {
           <Card>
             <CardContent className="p-3 text-xs flex flex-col gap-1">
               <div className="flex justify-between font-medium"><span>模板 Props</span><Pencil className="size-3" /></div>
-              <div className="flex justify-between text-muted-foreground"><span>composition</span><span className="font-mono">&lt;NewsFlash/&gt;</span></div>
+              <div className="flex justify-between text-muted-foreground"><span>composition</span><span className="font-mono">&lt;{template.composition}/&gt;</span></div>
               <div className="flex justify-between text-muted-foreground"><span>theme</span><span>电光紫</span></div>
               <div className="flex justify-between text-muted-foreground"><span>font</span><span>思源黑体</span></div>
               <div className="flex justify-between text-muted-foreground"><span>transition</span><span className="font-mono">slide(8f)</span></div>

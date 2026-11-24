@@ -10,28 +10,35 @@ import { ShotFlowAnalytics } from "@/components/ShotFlowAnalytics"
 import { ShotFlowAssembly } from "@/components/ShotFlowAssembly"
 import { ShotFlowAssets } from "@/components/ShotFlowAssets"
 import { ShotFlowRender } from "@/components/ShotFlowRender"
+import { ShotFlowTemplates, type ShotFlowTemplate } from "@/components/ShotFlowTemplates"
 import { ShotFlowTopics } from "@/components/ShotFlowTopics"
 import { MarketView } from "@/components/MarketView"
 import { Button } from "@/components/ui/button"
 
-type View = "topics" | "assembly" | "assets" | "render" | "analytics" | "reader" | "market" | "settings"
+type View = "topics" | "templates" | "assembly" | "assets" | "render" | "analytics" | "reader" | "market" | "settings"
 
 const navItems: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: "topics", label: "选题 · 信息源", icon: <ListVideo className="size-4" /> },
-  { key: "assembly", label: "模板装配", icon: <LayoutTemplate className="size-4" /> },
+  { key: "templates", label: "模板库", icon: <LayoutTemplate className="size-4" /> },
   { key: "assets", label: "素材库", icon: <FolderOpen className="size-4" /> },
   { key: "render", label: "渲染 · 发布", icon: <Zap className="size-4" /> },
   { key: "analytics", label: "数据复盘", icon: <Activity className="size-4" /> },
 ]
 
-// ShotFlow 主壳: 选题 → 装配 → 素材 → 渲染发布 → 复盘;
+// ShotFlow 主壳: 选题 → 模板库 → 装配 → 素材 → 渲染发布 → 复盘;
 // 保留 digestly 阅读器(阅读)与市场/设置作为辅助入口。
 export default function App() {
   const [view, setView] = useState<View>("topics")
   const [topicId, setTopicId] = useState<number | undefined>()
+  const [template, setTemplate] = useState<ShotFlowTemplate | null>(null)
 
-  const openAssembly = (id: number) => {
+  const openTemplates = (id: number) => {
     setTopicId(id)
+    setView("templates")
+  }
+
+  const openAssembly = (selected: ShotFlowTemplate) => {
+    setTemplate(selected)
     setView("assembly")
   }
 
@@ -54,7 +61,7 @@ export default function App() {
           {navItems.map((n) => (
             <Button
               key={n.key}
-              variant={view === n.key ? "secondary" : "ghost"}
+              variant={view === n.key || (n.key === "templates" && view === "assembly") ? "secondary" : "ghost"}
               size="sm"
               className="justify-start"
               onClick={() => setView(n.key)}
@@ -98,9 +105,11 @@ export default function App() {
       </aside>
 
       {view === "topics" ? (
-        <ShotFlowTopics onAssemble={openAssembly} />
-      ) : view === "assembly" ? (
-        <ShotFlowAssembly topicId={topicId} />
+        <ShotFlowTopics onAssemble={openTemplates} />
+      ) : view === "templates" ? (
+        <ShotFlowTemplates topicId={topicId} onAssemble={openAssembly} />
+      ) : view === "assembly" && template ? (
+        <ShotFlowAssembly topicId={topicId} template={template} onBack={() => setView("templates")} />
       ) : view === "assets" ? (
         <ShotFlowAssets />
       ) : view === "render" ? (
